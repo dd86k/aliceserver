@@ -1,0 +1,23 @@
+name "aliceserver"
+description "Alicedbg DAP server"
+authors "dd86k <dd@dax.moe>"
+copyright "Copyright © 2024, dd86k <dd@dax.moe>"
+license "BSD-3-Clause-Clear"
+
+dependency "alicedbg" version=">=0.0.0"
+
+# NOTE: By default, docs are built with dependencies, which is silly!
+buildType "docs" {
+	buildRequirements "allowWarnings"
+	buildOptions "syntaxOnly"
+	dflags "-Dddocs"
+	sourcePaths "source"
+	importPaths "source"
+}
+buildType "ddox" {
+	buildRequirements "allowWarnings"
+	buildOptions "syntaxOnly"
+	dflags "-Dddocs"
+	sourcePaths "source"
+	importPaths "source"
+}

@@ -1,0 +1,25 @@
+.dub
+__dummy.html
+docs/
+/aliceserver
+aliceserver.so
+aliceserver.dylib
+aliceserver.dll
+aliceserver.a
+aliceserver.lib
+aliceserver-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
+# dub.selections.json, debuggerAdapterProtocol.json, docs.json, etc.
+*.json
+*.log
+
+# Archives
+*.tar.*
+*.zip
+
+# Personal stuff
+perso/
