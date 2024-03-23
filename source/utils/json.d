@@ -38,13 +38,14 @@ void optional(T)(ref JSONValue json, string name, ref T receiver)
 /// Ditto
 void optional(T)(const(JSONValue) *json, string name, ref T receiver)
 {
+    const(JSONValue) *p = name in *json;
     static if (is(T == JSONValue))
     {
-        if (json) receiver = *json;
+        if (p) receiver = *p;
     }
     else
     {
-        if (json) receiver = (*json).get!T;
+        if (p) receiver = (*p).get!T;
     }
 }
 /// Optionally set the target from JSON.

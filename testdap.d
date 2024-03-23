@@ -26,13 +26,13 @@ else
 
 enum Op : char
 {
-    trace = '@',
-    info = '~',
-    important = '*',
-    warn = '?',
-    error = '!',
-    sending = '>',
-    receiving = '<',
+    trace       = '@',
+    info        = '~',
+    important   = '*',
+    warn        = '?',
+    error       = '!',
+    sending     = '>',
+    receiving   = '<',
 }
 __gshared
 {
@@ -45,7 +45,7 @@ void log(A...)(char op, string fmt, A args)
 {
     if (op == Op.trace && overbose == false) return;
     
-    stderr.write(op, op, op, "\ttest: ");
+    stderr.write("TESTER[", op, "]: ");
     stderr.writefln(fmt, args);
 }
 int error(int code, string msg)
@@ -122,6 +122,7 @@ int main(string[] args)
         return 1;
     }*/
     
+    // If there are args, they're likely for another server
     if (args.length > 1)
     {
         args = args[1..$];
@@ -131,6 +132,7 @@ int main(string[] args)
         args = [ defaultCommand ];
     }
     
+    // If no args are specified, and the server doesn't exist in this folder, build it
     if (args.length <= 1 && exists(defaultCommand) == false)
     {
         log(Op.important, "Server not found locally, building...");
@@ -205,14 +207,14 @@ int main(string[] args)
     
 LPROMPT:
     write("test> ");
-    string[] ucomm = stripRight(readln()).split!isWhite;
+    string[] ucomm = readln().stripRight().split!isWhite;
     
     if (ucomm.length == 0)
         goto LPROMPT;
     
     switch (ucomm[0]) {
     case "help":
-        log(Op.info, "Commands: attach, spawn, disconnect, terminate, quit");
+        log(Op.info, "Commands: attach PID, spawn PATH, disconnect, terminate, quit");
         break;
     case "attach": // pid
         if (ucomm.length < 2)
@@ -234,7 +236,7 @@ LPROMPT:
     case "launch": // path
         if (ucomm.length < 2)
         {
-            log(Op.error, "I need a path");
+            log(Op.error, "I need a path to an executable");
             break;
         }
         JSONValue jlaunch = newMsg("launch");
@@ -248,11 +250,9 @@ LPROMPT:
             log(Op.warn, "Request id invalid, continuing anyway...");
         }
         break;
-    case "disconnect": // detach or kill debuggee
-        break;
     case "terminate": // gracefully terminate debuggee
         break;
-    case "q", "quit":
+    case "q", "quit", "disconnect":
         JSONValue jdisconnect = newMsg("disconnect");
         cast(void)serverSend(jdisconnect);
         return 0;
