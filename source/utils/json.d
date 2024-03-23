@@ -35,6 +35,18 @@ void optional(T)(ref JSONValue json, string name, ref T receiver)
         if (p) receiver = (*p).get!T;
     }
 }
+/// Ditto
+void optional(T)(const(JSONValue) *json, string name, ref T receiver)
+{
+    static if (is(T == JSONValue))
+    {
+        if (json) receiver = *json;
+    }
+    else
+    {
+        if (json) receiver = (*json).get!T;
+    }
+}
 /// Optionally set the target from JSON.
 ///
 /// Throws an exception if key was not found.

@@ -249,7 +249,7 @@ LISTEN:
             required(jargs, "pid", request.attachOptions.pid);
             break;
         case "disconnect":
-            // If launched, closes it.
+            // If launched, close debuggee.
             // If attached, detach. Unless terminateDebuggee:true specified.
             //
             // Server should only understand closing, so send appropriate
@@ -258,11 +258,9 @@ LISTEN:
             case RequestType.attach:
                 if (const(JSONValue) *pjdisconnect = "arguments" in j)
                 {
-                    JSONValue jdisconnect = *pjdisconnect;
                     bool kill; // Defaults to false
-                    optional(jdisconnect, "terminateDebuggee", kill);
-                    request.closeOptions.action = kill ?
-                        CloseAction.terminate : CloseAction.detach;
+                    optional(pjdisconnect, "terminateDebuggee", kill);
+                    with (CloseAction) request.closeOptions.action = kill ? terminate : detach;
                 }
                 else
                 {

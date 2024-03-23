@@ -101,7 +101,7 @@ private:
 struct DebuggerInfo
 {
     bool active;
-    adbg_process_t process;
+    adbg_process_t *process;
     Tid tid;
 }
 
@@ -151,14 +151,10 @@ __gshared DebuggerInfo debugger;
 //TODO: Should errors and replies be sent back to server?
 void handleDebugger(Tid parent, DebuggerStartOptions options)
 {
-    int e = options.type == RequestType.attach ?
-        adbg_debugger_attach(&debugger.process,
-            options.attachOptions.pid,
-            0) :
-        adbg_debugger_spawn(&debugger.process,
-            options.launchOptions.path.toStringz(),
-            0);
-    if (e)
+    debugger.process = options.type == RequestType.attach ?
+        adbg_debugger_attach(options.attachOptions.pid, 0) :
+        adbg_debugger_spawn(options.launchOptions.path.toStringz(), 0);
+    if (debugger.process == null)
     {
         scope errmsg = cast(string)fromStringz(adbg_error_msg());
         logError("Debugger: %s", errmsg);
@@ -183,7 +179,7 @@ void handleDebugger(Tid parent, DebuggerStartOptions options)
     {
         receive(
             (MsgDetach mdetach) {
-                if (adbg_debugger_detach(&debugger.process))
+                if (adbg_debugger_detach(debugger.process))
                 {
                     adapter.reply(AdapterError(
                         cast(string)fromStringz(adbg_error_msg())
@@ -213,7 +209,7 @@ void handleDebuggerEvents(Tid parent)
     bool done;
     while (done == false)
     {
-        if (adbg_debugger_wait(&debugger.process, &debuggerException))
+        if (adbg_debugger_wait(debugger.process, &debuggerException))
         {
             string errmsg = cast(string)fromStringz(adbg_error_msg());
             logError("EventHandler: %s", errmsg);
