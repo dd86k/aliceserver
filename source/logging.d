@@ -10,9 +10,10 @@ module logging;
 import std.stdio;
 import std.datetime;
 import std.datetime.stopwatch;
-import std.container;
+import std.container : Array;
 import std.format;
 import std.conv;
+import core.sync.mutex;
 
 /// Log level used on a per-message basis.
 enum LogLevel
@@ -97,14 +98,16 @@ private __gshared
 {
     LogLevel loglevel;
     Array!IAppender appenders;
-    char[1024] msgbuf;
     StopWatch watch;
+    
+    Mutex mutx;
 }
 
 shared static this()
 {
     watch.start();
     appenders = Array!IAppender();
+    mutx = new Mutex();
 }
 
 void logSetLevel(LogLevel level)
@@ -118,60 +121,67 @@ void logAddAppender(IAppender appender)
 }
 
 private
-void log(LogLevel level, const(char)[] message, string mod)
+void logt(A...)(LogLevel level, string mod, int line, const(char)[] fmt, A args)
 {
     if (appenders.length == 0) return;
     if (level > loglevel) return;
     
+Ltest:
+    if (mutx.tryLock_nothrow() == false)
+        goto Ltest;
+    //TODO: Add debug option for module/line info
+    char[2048] buf = void;
+    log(level, buf.sformat(fmt, args));
+    mutx.unlock_nothrow();
+}
+private
+void log(LogLevel level, const(char)[] message)
+{
     Duration since = watch.peek();
-    // NOTE: currTime takes ~500 µs to get time on Windows
-    SysTime time = Clock.currTime();
-    
-    scope msgtext = text(mod, ": ", message);
+    SysTime time = Clock.currTime(); // NOTE: takes ~500 µs on Windows
     LogMessage msg = LogMessage(level,
         time,
         since.total!"usecs"(),
-        msgtext);
+        message);
     
-    // NOTE: This could be done using parallel()
     foreach (appender; appenders)
     {
         appender.log(msg);
     }
 }
 
-void logCritical(A...)(string fmt, A args, string mod = __MODULE__)
+void logCritical(A...)(string fmt, A args, string MODULE = __MODULE__, int LINE = __LINE__)
 {
     if (appenders.length == 0) return;
     if (loglevel < LogLevel.critical) return;
     
-    log(LogLevel.critical, sformat(msgbuf, fmt, args), mod);
+    logt(LogLevel.critical, MODULE, LINE, fmt, args);
 }
-void logError(A...)(string fmt, A args, string mod = __MODULE__)
+void logError(A...)(string fmt, A args, string MODULE = __MODULE__, int LINE = __LINE__)
 {
     if (appenders.length == 0) return;
     if (loglevel < LogLevel.error) return;
     
-    log(LogLevel.error, sformat(msgbuf, fmt, args), mod);
+    logt(LogLevel.error, MODULE, LINE, fmt, args);
 }
-void logWarn(A...)(string fmt, A args, string mod = __MODULE__)
+void logWarn(A...)(string fmt, A args, string MODULE = __MODULE__, int LINE = __LINE__)
 {
     if (appenders.length == 0) return;
     if (loglevel < LogLevel.warning) return;
     
-    log(LogLevel.warning, sformat(msgbuf, fmt, args), mod);
+    logt(LogLevel.warning, MODULE, LINE, fmt, args);
 }
-void logInfo(A...)(string fmt, A args, string mod = __MODULE__)
+void logInfo(A...)(string fmt, A args, string MODULE = __MODULE__, int LINE = __LINE__)
 {
     if (appenders.length == 0) return;
     if (loglevel < LogLevel.info) return;
     
-    log(LogLevel.info, sformat(msgbuf, fmt, args), mod);
+    logt(LogLevel.info, MODULE, LINE, fmt, args);
 }
-void logTrace(A...)(string fmt, A args, string mod = __MODULE__)
+void logTrace(A...)(string fmt, A args, string MODULE = __MODULE__, int LINE = __LINE__)
 {
     if (appenders.length == 0) return;
     if (loglevel < LogLevel.trace) return;
     
-    log(LogLevel.trace, sformat(msgbuf, fmt, args), mod);
+    logt(LogLevel.trace, MODULE, LINE, fmt, args);
 }
