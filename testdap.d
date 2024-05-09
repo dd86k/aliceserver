@@ -5,23 +5,19 @@
 /// License: BSD-3-Clause-Clear
 module testdap;
 
-import std.stdio;
-import std.string;
-import std.process;
-import std.json;
-import std.conv;
-import std.file : exists;
-import std.array;
-import std.ascii;
+import std;
 import core.thread;
+
+alias splitstr = std.array.split;
+alias white = std.ascii.isWhite;
 
 version (Windows)
 {
-    immutable string defaultCommand = "aliceserver.exe";
+    immutable string defaultServer = "aliceserver.exe";
 }
 else
 {
-    immutable string defaultCommand = "./aliceserver";
+    immutable string defaultServer = "./aliceserver";
 }
 
 enum Op : char
@@ -37,13 +33,18 @@ enum Op : char
 __gshared
 {
     ProcessPipes proc;
-    bool overbose = true;
+    bool overbose;
     int current_seq = 1;
 }
 
 void log(A...)(char op, string fmt, A args)
 {
-    if (op == Op.trace && overbose == false) return;
+    // If operating is one of those, and we don't want verbose, do not print
+    if (overbose == false)
+    switch (op) {
+    case Op.trace, Op.receiving, Op.sending: return;
+    default:
+    }
     
     stderr.write("TESTER[", op, "]: ");
     stderr.writefln(fmt, args);
@@ -68,12 +69,12 @@ JSONValue serverSend(JSONValue jobj)
     
     __gshared char[4096] buffer;
 
-LREADAGAIN:
+Lread:
     //TODO: Read until empty in case of multiple header fields
     string header = strip( proc.stdout.readln() );
     cast(void)proc.stdout.readln();
     
-    log(Op.info, "Header: %s", header);
+    log(Op.trace, "Header: %s", header);
     string[] parts = header.split(":");
     size_t sz = to!uint(strip(parts[1]));
     const(char)[] httpbody = proc.stdout.rawRead(buffer[0..sz]);
@@ -85,7 +86,7 @@ LREADAGAIN:
     if (j["type"].str == "event")
     {
         onEvent(j);
-        goto LREADAGAIN;
+        goto Lread;
     }
     
     return j;
@@ -110,45 +111,64 @@ void onEvent(JSONValue j)
 
 int main(string[] args)
 {
-    /*GetoptResult ores;
+    string oserver;
+    
+    GetoptResult ores;
     try
     {
         ores = getopt(args,
+        "s|server", "Server to use (default=aliceserver)", &oserver,
+        "t|trace",  "Extra verbose messages", &overbose,
         );
     }
     catch (Exception ex)
     {
         log(Op.error, ex.msg);
         return 1;
-    }*/
-    
-    // If there are args, they're likely for another server
-    if (args.length > 1)
-    {
-        args = args[1..$];
-    }
-    else
-    {
-        args = [ defaultCommand ];
     }
     
-    // If no args are specified, and the server doesn't exist in this folder, build it
-    if (args.length <= 1 && exists(defaultCommand) == false)
+    if (ores.helpWanted)
     {
-        log(Op.important, "Server not found locally, building...");
-        auto pid = spawnProcess([ "dub", "build" ]);
-        int code = wait(pid);
-        if (code)
+        defaultGetoptPrinter(`DAP client tester
+
+Supports DAP servers like "gdb -i dap" and "lldb-vscode"
+
+OPTIONS`, ores.options);
+        return 0;
+    }
+    
+    string[] svropts = void;
+    switch (oserver) {
+    case "gdb": // "gdb -i dap" alias
+        svropts = [ "gdb", "-i", "dap" ];
+        break;
+    case "lldb": // "lldb-vscode" alias
+        svropts = [ "lldb-vscode" ];
+        break;
+    case null: // default
+        svropts = [ defaultServer ];
+        
+        // If I can't see it, I'll build it!
+        if (exists(defaultServer) == false)
         {
-            log(Op.error, "Compilation ended in error, aborting");
-            return code;
+            log(Op.important, "Server not found locally, building...");
+            int code = wait( spawnProcess([ "dub", "build" ]) );
+            if (code)
+                return error(code, "Compilation ended in error, aborting");
         }
+        break;
+    default: // custom
+        svropts = [ oserver ];
     }
     
     // Spawn server, redirect all except stderr (inherits handle)
-    log(Op.info, "Starting server...");
-    proc = pipeProcess(args, Redirect.stdin | Redirect.stdout);
-    if (proc.pid.processID == 0)
+    log(Op.info, "Starting %s...", oserver);
+    string[] launchopts = svropts ~ (args.length >= 1 ? args[1..$] : []);
+    proc = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
+    // NOTE: waitTimeout is only defined for Windows,
+    //       despite Pid.performWait being available for POSIX
+    Thread.sleep(1000.msecs);
+    if (tryWait(proc.pid).terminated)
         return error(2, "Could not launch server");
     
     //bool serverSupportsXYZ;
@@ -156,7 +176,6 @@ int main(string[] args)
     // Start with the initialize request
     {
         JSONValue jinitialize = newMsg("initialize");
-        
         JSONValue jarguments;
         jarguments["clientID"] = "dd-dap-tester";
         jarguments["clientName"] = "DD's DAP Tester Tool";
@@ -164,7 +183,6 @@ int main(string[] args)
         jinitialize["arguments"] = jarguments;
         
         JSONValue jres = serverSend(jinitialize); current_seq++;
-        
         if (jres["request_seq"].integer != 1)
         {
             log(Op.warn, "Initial request id isn't 1, continuing anyway...");
@@ -176,15 +194,18 @@ int main(string[] args)
         
         if (const(JSONValue)* jbody = "body" in jres)
         {
-            string output;
+            static immutable string supports = "supports";
+            static immutable string support  = "support";
+            string[] output;
             foreach (ref key; jbody.object().keys)
             {
                 // NOTE: supportTerminateDebuggee lacks the 's'
-                if (startsWith("support", key) == false)
-                    continue;
-                output ~= key;
+                if (startsWith(key, supports))
+                    output ~= key[supports.length..$];
+                else if (startsWith(key, support))
+                    output ~= key[support.length..$];
             }
-            log(Op.info, "Server capabilities: %s", output);
+            log(Op.info, "Server capabilities: %s", output.join(", "));
         }
         else
             log(Op.info, "Server did not emit any capabilities");
@@ -205,26 +226,25 @@ int main(string[] args)
     
     log(Op.info, "Connected");
     
-LPROMPT:
+Lprompt:
     write("test> ");
-    string[] ucomm = readln().stripRight().split!isWhite;
+    args = readln().stripRight().splitstr!white;
+    if (args.length == 0)
+        goto Lprompt;
     
-    if (ucomm.length == 0)
-        goto LPROMPT;
-    
-    switch (ucomm[0]) {
+    switch (args[0]) {
     case "help":
         log(Op.info, "Commands: attach PID, spawn PATH, disconnect, terminate, quit");
         break;
     case "attach": // pid
-        if (ucomm.length < 2)
+        if (args.length < 2)
         {
             log(Op.error, "I need a PID");
             break;
         }
         JSONValue jattach = newMsg("attach");
         jattach["arguments"] = [
-            "pid": to!uint(ucomm[1])
+            "pid": to!uint(args[1])
         ];
         
         JSONValue jresponse = serverSend(jattach);
@@ -234,14 +254,14 @@ LPROMPT:
         }
         break;
     case "launch": // path
-        if (ucomm.length < 2)
+        if (args.length < 2)
         {
             log(Op.error, "I need a path to an executable");
             break;
         }
         JSONValue jlaunch = newMsg("launch");
         jlaunch["arguments"] = [
-            "path": to!uint(ucomm[1])
+            "path": to!uint(args[1])
         ];
         
         JSONValue jresponse = serverSend(jlaunch);
@@ -257,9 +277,9 @@ LPROMPT:
         cast(void)serverSend(jdisconnect);
         return 0;
     default:
-        if (ucomm.length)
+        if (args.length)
             log(Op.info, "Unknown command");
     }
     
-    goto LPROMPT;
+    goto Lprompt;
 }
