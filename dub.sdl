@@ -4,7 +4,7 @@ authors "dd86k <dd@dax.moe>"
 copyright "Copyright © 2024, dd86k <dd@dax.moe>"
 license "BSD-3-Clause-Clear"
 
-dependency "alicedbg" version=">=0.0.0"
+dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="97342ee5bae514689a514a1c82c46351ae3e016b"
 
 # NOTE: By default, docs are built with dependencies, which is silly!
 buildType "docs" {
