@@ -225,8 +225,24 @@ void handleDebuggerEvents(Tid parent)
     }
 }
 
-extern (C)
-void debuggerException(adbg_exception_t *ex)
+string eventName(int type)
 {
-    //adapter.event(AdapterEvent());
+    switch (type) with (AdbgEvent) {
+    case exception: return "Exception";
+    default:        return "Unknown";
+    }
+}
+
+extern (C)
+void debuggerException(adbg_process_t *proc, int type, void *data)
+{
+    logTrace("Event: %s (%d)", eventName(type), type);
+    switch (type) with (AdbgEvent) {
+    case exception:
+        adbg_exception_t *ex = cast(adbg_exception_t*)data;
+        //adapter.event(AdapterEvent());
+        break;
+    default:
+        return;
+    }
 }

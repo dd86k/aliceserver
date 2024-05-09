@@ -27,9 +27,8 @@ import utils.json;
 //       - Server can send Events at any time
 
 // NOTE: Single-session DAP flow
-// client: spawns server and communiates via standard streams
-// client: starts seq at 1
-// server: starts seq at 1
+// client spawns server and communiates via standard streams and starts seq to 1
+// client and server: Start seq at 1
 // client> Initialize request with interface InitializeRequestArguments
 // server> Replies server capabilities
 // client> (Optional) Sets breakpoints if any, then requests configurationDone
@@ -39,6 +38,7 @@ import utils.json;
 private
 struct Capability
 {
+    //TODO: Add ctor with default value?
     string name;
     bool supported;
     
