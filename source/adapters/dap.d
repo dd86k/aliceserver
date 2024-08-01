@@ -374,6 +374,7 @@ Llisten:
         send(j);
     }
     
+    private
     void send(ref JSONValue json)
     {
         super.send(cast(ubyte[])json.toString());

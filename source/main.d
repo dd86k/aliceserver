@@ -77,9 +77,17 @@ void main(string[] args)
     
     if (gres.helpWanted)
     {
+        static immutable int optpad = -16;
         gres.options[$-1].help = "Show this help page and quit";
-        defaultGetoptPrinter("Debugger server", gres.options);
-        return;
+        writeln("Debugger server\n\nOptions:");
+        foreach (Option opt; gres.options)
+        {
+            with (opt) if (optShort)
+                writefln(" %s, %*s  %s", optShort, optpad, optLong, help);
+            else
+                writefln("     %*s  %s", optpad, optLong, help);
+        }
+        exit(0);
     }
     
     // Setup logger
