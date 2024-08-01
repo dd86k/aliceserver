@@ -50,13 +50,7 @@ struct Capability
     }
 }
 
-// To be honest, only the first two are used
-private
-enum ClientCapabilityIndex : size_t
-{
-    linesStartAt1,
-    columnsStartAt1,
-}
+private enum PathFormat { path, uri }
 
 //TODO: Consider update seq atomically
 class DAPAdapter : IAdapter
@@ -74,7 +68,7 @@ class DAPAdapter : IAdapter
         /// ISO-639
         string locale;
         /// 'path' or 'uri'
-        string pathFormat;
+        PathFormat pathFormat;
         
         //TODO: Issue with linesStartAt1/columnsStartAt1: They default to one
         Capability[11] capabilities = [
@@ -197,14 +191,21 @@ LISTEN:
                 logInfo("Client: %s (%s)", name, id);
             
             optional(jarguments, "locale", client.locale);
-            optional(jarguments, "pathFormat", client.pathFormat);
-            switch (client.pathFormat) {
-            case string.init: break;
-            case "path": break; //TODO: Setup functions/enums
-            case "uri": break;
-            default:
-                throw new Exception(text("Invalid pathFormat: ",
-                    client.pathFormat));
+            
+            string pathFormat;
+            if (optional(jarguments, "pathFormat", pathFormat))
+            {
+                switch (pathFormat) {
+                case "path": //TODO: Setup functions/enums
+                    client.pathFormat = PathFormat.path;
+                    break;
+                case "uri":
+                    client.pathFormat = PathFormat.uri;
+                    break;
+                default:
+                    throw new Exception(text("Invalid pathFormat: ",
+                        client.pathFormat));
+                }
             }
             
             string clientcap;
@@ -213,8 +214,7 @@ LISTEN:
                 optional(jarguments, capability.name, capability.supported);
                 if (capability.supported)
                 {
-                    clientcap ~= text(" ",
-                        capability.prettyName());
+                    clientcap ~= text(" ", capability.prettyName());
                 }
             }
             if (clientcap == string.init)

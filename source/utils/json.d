@@ -23,7 +23,8 @@ import std.json;
 ///   json = JSONValue to get value from.
 ///   name = JSON field name.
 ///   receiver = lvalue receiving the value.
-void optional(T)(ref JSONValue json, string name, ref T receiver)
+/// Returns: True if receiver was set.
+bool optional(T)(ref JSONValue json, string name, ref T receiver)
 {
     const(JSONValue)* p = name in json;
     static if (is(T == JSONValue))
@@ -34,9 +35,10 @@ void optional(T)(ref JSONValue json, string name, ref T receiver)
     {
         if (p) receiver = (*p).get!T;
     }
+    return p != null;
 }
 /// Ditto
-void optional(T)(const(JSONValue) *json, string name, ref T receiver)
+bool optional(T)(const(JSONValue) *json, string name, ref T receiver)
 {
     const(JSONValue) *p = name in *json;
     static if (is(T == JSONValue))
@@ -47,7 +49,20 @@ void optional(T)(const(JSONValue) *json, string name, ref T receiver)
     {
         if (p) receiver = (*p).get!T;
     }
+    return p != null;
 }
+unittest
+{
+    JSONValue v;
+    v["test"] = "value";
+    
+    string value;
+    assert(optional(v, "test", value));
+    assert(value == "value");
+    
+    assert(optional(v, "field_name_404", value) == false);
+}
+
 /// Optionally set the target from JSON.
 ///
 /// Throws an exception if key was not found.
@@ -71,6 +86,27 @@ void required(T)(ref JSONValue json, string name, ref T receiver)
     else
         receiver = json[name].get!T;
 }
+unittest
+{
+    JSONValue v;
+    v["test"] = "value";
+    
+    string value;
+    required(v, "test", value);
+    
+    assert(value == "value");
+    
+    try
+    {
+        required(v, "required_field", value);
+        assert(false);
+    }
+    catch (Exception)
+    {
+        
+    }
+}
+
 /+void setoptional(T)(ref JSONValue json, string name, T value)
 {
     if (value == value.init)
