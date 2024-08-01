@@ -13,17 +13,19 @@ import core.thread;
 // self
 import logging;
 import adapters;
-import adapters.dap;
 import transports;
 // ext
 import adbg.debugger.process;
 import adbg.debugger.exception;
 import adbg.error;
 
+/// Adapter type.
+enum AdapterType { dap, mi }
+
 /// Server settings.
 struct ServerSettings
 {
-    
+    AdapterType adapterType;
 }
 
 /// Start server loop.
@@ -31,7 +33,14 @@ struct ServerSettings
 /// Right now, only single-session mode and DAP are supported.
 void serverStart(ServerSettings settings)
 {
-    adapter = new DAPAdapter(new HTTPStdioTransport());
+    final switch (settings.adapterType) with (AdapterType) {
+    case dap:
+        adapter = new DAPAdapter(new HTTPStdioTransport());
+        break;
+    case mi:
+        adapter = new MIAdapter(new StdioTransport());
+        break;
+    }
     
     logTrace("Listening...");
     AdapterRequest request = void;

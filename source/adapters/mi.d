@@ -17,3 +17,40 @@ module adapters.mi;
 // - https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html
 // - https://github.com/lldb-tools/lldb-mi
 // - gdb: gdb/mi
+
+import adapters;
+import transports;
+import logging;
+
+class MIAdapter : Adapter
+{
+    // TODO: version parameter
+    this(ITransport t)
+    {
+        super(t);
+    }
+    
+    override
+    AdapterRequest listen()
+    {
+        return AdapterRequest();
+    }
+    
+    override
+    void reply(AdapterReply msg)
+    {
+        
+    }
+    
+    override
+    void reply(AdapterError msg)
+    {
+        
+    }
+    
+    override
+    void event(AdapterEvent msg)
+    {
+        
+    }
+}

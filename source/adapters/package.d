@@ -1,3 +1,3 @@
 module adapters;
 
-public import adapters.base;
+public import adapters.base, adapters.dap, adapters.mi;

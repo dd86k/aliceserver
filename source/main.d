@@ -24,8 +24,6 @@ else
 
 void main(string[] args)
 {
-    bool oversionOnly;
-    bool oversion;
     LogLevel ologlevel = DEFAULT_LEVEL;
     string ologfile;
     ServerSettings osettings;
@@ -33,13 +31,42 @@ void main(string[] args)
     GetoptResult gres = void;
     try
     {
-        //TODO: -a|--adapter ?
-        //TODO: --dap-capabilities ?
+        //TODO: --list-capabilities: List DAP or GDB/MI capabilities
         gres = getopt(args,
+        "a|adapter",`Set adapter to use`, (string _, string value) {
+            switch (value) {
+            case "dap":
+                osettings.adapterType = AdapterType.dap;
+                break;
+            case "mi":
+                osettings.adapterType = AdapterType.mi;
+                break;
+            default:
+                throw new Exception(`Unknown adapter`);
+            }
+        },
+        "list-adapters",  `List available adapters`, {
+            writeln("Adapters:");
+            writeln("dap .... (default) Debug Adapter Protocol");
+            writeln("mi ..... GDB/MI (GDB Machine Interface)");
+            exit(0);
+        },
         "logpath",  `Logger: Set file path for logging`, &ologfile,
         "loglevel", `Logger: Set path`, &ologlevel,
-        "ver",      `Show only version and quit`, &oversionOnly,
-        "version",  `Show version page and quit`, &oversion,
+        "ver",      `Show only version and quit`, {
+            writeln(PROJECT_VERSION);
+            exit(0);
+        },
+        "version",  `Show version page and quit`, {
+            write(
+            "aliceserver ", PROJECT_VERSION, "\n",
+            "            Built ", __TIMESTAMP__, "\n",
+            "            ", PROJECT_COPYRIGHT, "\n",
+            "            ", PROJECT_LICENSE, "\n",
+            "alicedbg    ", ADBG_VERSION, "\n",
+            );
+            exit(0);
+        }
         );
     }
     catch (Exception ex)
@@ -52,24 +79,6 @@ void main(string[] args)
     {
         gres.options[$-1].help = "Show this help page and quit";
         defaultGetoptPrinter("Debugger server", gres.options);
-        return;
-    }
-    
-    if (oversionOnly)
-    {
-        writeln(PROJECT_VERSION);
-        return;
-    }
-    
-    if (oversion)
-    {
-        write(
-        "aliceserver ", PROJECT_VERSION, "\n",
-        "            Built ", __TIMESTAMP__, "\n",
-        "            ", PROJECT_COPYRIGHT, "\n",
-        "            ", PROJECT_LICENSE, "\n",
-        "alicedbg    ", ADBG_VERSION, "\n",
-        );
         return;
     }
     
