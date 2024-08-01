@@ -56,7 +56,7 @@ string logLevelName(LogLevel level)
 /// Main interface for implementing and appender.
 interface IAppender
 {
-    void log(ref LogMessage message);
+    void log(ref LogMessage message, string mod, int line);
 }
 class ConsoleAppender : IAppender
 {
@@ -64,15 +64,17 @@ class ConsoleAppender : IAppender
     {
     }
     
-    void log(ref LogMessage message)
+    void log(ref LogMessage message, string mod, int line)
     {
         enum second_us = 1_000_000;
         long secs = message.usecs / second_us;
         long frac = message.usecs % second_us;
         // NOTE: 999,999 seconds is 277,8 Hours, so 6 digits is okay
         // NOTE: stderr is not buffered by default (vs. stdout/stdin)
-        stderr.writefln("[%6d.%06d] %-8s %s",
-            secs, frac, logLevelName(message.level), message.text);
+        stderr.writefln("[%6d.%06d] %-8s [%s:%d] %s",
+            secs, frac, logLevelName(message.level),
+            mod, line,
+            message.text);
     }
 }
 class FileAppender : IAppender
@@ -84,11 +86,12 @@ class FileAppender : IAppender
         file = File(path, "a");
     }
     
-    void log(ref LogMessage message)
+    void log(ref LogMessage message, string mod, int line)
     {
-        file.writefln("%-24s %-8s %s",
+        file.writefln("%-24s %-8s [%s:%d] %s",
             message.time.toISOExtString(),
             logLevelName(message.level),
+            mod, line,
             message.text);
         file.flush();
     }
@@ -129,13 +132,13 @@ void logt(A...)(LogLevel level, string mod, int line, const(char)[] fmt, A args)
 Ltest:
     if (mutx.tryLock_nothrow() == false)
         goto Ltest;
-    //TODO: Add debug option for module/line info
+    
     char[2048] buf = void;
-    log(level, buf.sformat(fmt, args));
+    log(level, buf.sformat(fmt, args), mod, line);
     mutx.unlock_nothrow();
 }
 private
-void log(LogLevel level, const(char)[] message)
+void log(LogLevel level, const(char)[] message, string mod, int line)
 {
     Duration since = watch.peek();
     SysTime time = Clock.currTime(); // NOTE: takes ~500 µs on Windows
@@ -146,7 +149,7 @@ void log(LogLevel level, const(char)[] message)
     
     foreach (appender; appenders)
     {
-        appender.log(msg);
+        appender.log(msg, mod, line);
     }
 }
 
