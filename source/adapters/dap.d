@@ -21,9 +21,10 @@ import utils.json;
 //   lldb-vscode is soon to be renamed lldb-dap
 
 // NOTE: Overview
-//       - Client only sends Requests
-//       - Server responses to those with Reponses or Errors
-//       - Server can send Events at any time
+//       - Client only sends Requests.
+//       - Server responses to requests with Reponses or Errors.
+//       - Server can send Events at any time.
+//       - DAP is used via HTTP, even with stdio streams.
 
 // NOTE: Single-session DAP flow
 // * client spawns server and communiates via standard streams (stdio)
@@ -148,7 +149,7 @@ class DAPAdapter : Adapter
     override
     AdapterRequest listen()
     {
-LISTEN:
+Llisten:
         ubyte[] buffer = receive();
         
         // Cast as string and validate
@@ -165,26 +166,36 @@ LISTEN:
             logWarn("Message is not type 'request', but '%s', ignoring", mtype);
         }
         
-        scope mcommand = j["command"].str; // Validated before Request.init
+        const(JSONValue) *pcommand = "command" in j;
+        if (pcommand == null)
+            throw new Exception("'command' field missing");
         
+        scope mcommand = pcommand.str(); // Validated before Request.init
+        
+        logTrace("command: '%s'", mcommand);
         AdapterRequest request;
         switch (mcommand) {
-        case "initialize": // Not given to server
+        // Initialize DAP session, server services not required
+        case "initialize":
             request.type = RequestType.initializaton;
             
             JSONValue jarguments = j["arguments"];
             
-            // Required
+            //
+            // Required fields
+            //
+            
             required(jarguments, "adapterID", client.adapterId);
             logInfo("Adapter ID: %s", client.adapterId);
             
-            // Optional
+            //
+            // Optional fields
+            //
+            
             optional(jarguments, "clientID", client.id);
             optional(jarguments, "clientName", client.name);
-            
             with (client) if (id && name)
                 logInfo("Client: %s (%s)", name, id);
-            
             optional(jarguments, "locale", client.locale);
             
             string pathFormat;
@@ -203,6 +214,7 @@ LISTEN:
                 }
             }
             
+            // Process client capabilities
             string clientcap;
             foreach (ref Capability capability; client.capabilities)
             {
@@ -214,12 +226,13 @@ LISTEN:
             }
             if (clientcap == string.init)
                 clientcap = " none";
-            logInfo("Client capabilities: %s", clientcap);
+            logInfo("Client capabilities:%s", clientcap);
             
             AdapterReply res;
             res.type = RequestType.initializaton;
             reply(res);
-            goto LISTEN;
+            goto Llisten;
+        // Client configuration done, server services not required
         case "configurationDone":
             JSONValue jconfigdone;
             jconfigdone["seq"] = current_seq++;
@@ -228,17 +241,15 @@ LISTEN:
             jconfigdone["success"] = true;
             jconfigdone["command"] = "configurationDone";
             send(jconfigdone);
-            goto LISTEN;
+            goto Llisten;
         case "launch":
-            processCreation =
-                request.type = RequestType.spawn;
+            processCreation = request.type = RequestType.spawn;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "path", request.launchOptions.path);
             break;
         case "attach":
-            processCreation =
-                request.type = RequestType.attach;
+            processCreation = request.type = RequestType.attach;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "pid", request.attachOptions.pid);
@@ -249,6 +260,7 @@ LISTEN:
             //
             // Server should only understand closing, so send appropriate
             // request type.
+            request.type = RequestType.close;
             switch (processCreation) {
             case RequestType.attach:
                 if (const(JSONValue) *pjdisconnect = "arguments" in j)
@@ -288,6 +300,8 @@ LISTEN:
         j["success"] = true;
         
         switch (response.type) {
+        case RequestType.unknown:
+            break;
         case RequestType.initializaton:
             j["command"] = "initialize";
             

@@ -55,6 +55,17 @@ int error(int code, string msg)
     return code;
 }
 
+/// Prepare a new message to send
+JSONValue newMsg(string command)
+{
+    JSONValue j;
+    j["seq"] = current_seq++;
+    j["type"] = "request";
+    j["command"] = command;
+    return j;
+}
+
+/// Send message to server and read a reply
 JSONValue serverSend(JSONValue jobj)
 {
     string bodydata = jobj.toString();
@@ -76,7 +87,7 @@ Lread:
     
     log(Op.trace, "Header: %s", header);
     string[] parts = header.split(":");
-    size_t sz = to!uint(strip(parts[1]));
+    size_t sz = to!size_t(strip(parts[1]));
     const(char)[] httpbody = proc.stdout.rawRead(buffer[0..sz]);
     
     log(Op.receiving, cast(string)httpbody);
@@ -91,18 +102,10 @@ Lread:
     
     return j;
 }
-JSONValue newMsg(string command)
-{
-    JSONValue j;
-    j["seq"] = current_seq++;
-    j["type"] = "request";
-    j["command"] = command;
-    return j;
-}
 
 void onEvent(JSONValue j)
 {
-    log(Op.info, "%s", j);
+    log(Op.info, "event: %s", j);
 }
 
 //
@@ -227,7 +230,7 @@ OPTIONS`, ores.options);
     log(Op.info, "Connected");
     
 Lprompt:
-    write("test> ");
+    write("tester> ");
     args = readln().stripRight().splitstr!white;
     if (args.length == 0)
         goto Lprompt;

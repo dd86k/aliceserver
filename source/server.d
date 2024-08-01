@@ -87,10 +87,12 @@ LISTEN:
             if (receiveTimeout(quitTimeout, (MsgQuitAck mack) {}) == false)
                 logWarn("Debugger did not reply in %s, quitting anyway", quitTimeout);
         }
+        adapter.reply(AdapterReply());
+        // TODO: adapter.close()
+        //       Will be required for multi-sessions
         return;
     default:
-        logCritical("Request not implemented: %s", request.type);
-        assert(false);
+        logError("Request not implemented: %s", request.type);
     }
     goto LISTEN;
 }

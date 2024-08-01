@@ -9,6 +9,8 @@ import transports.base;
 
 enum RequestType
 {
+    unknown,
+    
     initializaton,
     spawn,
     launch = spawn, /// alias for launch
