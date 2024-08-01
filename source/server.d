@@ -31,8 +31,7 @@ struct ServerSettings
 /// Right now, only single-session mode and DAP are supported.
 void serverStart(ServerSettings settings)
 {
-    adapter = new DAPAdapter();
-    adapter.attach(new HTTPStdioTransport());
+    adapter = new DAPAdapter(new HTTPStdioTransport());
     
     logTrace("Listening...");
     AdapterRequest request = void;
@@ -145,7 +144,7 @@ struct DebuggerStartOptions
     }
 }
 
-__gshared IAdapter adapter;
+__gshared Adapter adapter;
 __gshared DebuggerInfo debugger;
 
 //TODO: Should errors and replies be sent back to server?

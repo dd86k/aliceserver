@@ -12,7 +12,6 @@ import std.utf : validate;
 import adapters;
 import transports;
 import logging;
-import utils.formatting : encodeHTTP;
 import utils.json;
 
 // References:
@@ -27,8 +26,8 @@ import utils.json;
 //       - Server can send Events at any time
 
 // NOTE: Single-session DAP flow
-// client spawns server and communiates via standard streams and starts seq to 1
-// client and server: Start seq at 1
+// * client spawns server and communiates via standard streams (stdio)
+// * client and server start their sequence number (seq) at 1
 // client> Initialize request with interface InitializeRequestArguments
 // server> Replies server capabilities
 // client> (Optional) Sets breakpoints if any, then requests configurationDone
@@ -53,9 +52,8 @@ struct Capability
 private enum PathFormat { path, uri }
 
 //TODO: Consider update seq atomically
-class DAPAdapter : IAdapter
+class DAPAdapter : Adapter
 {
-    ITransport transport;
     int current_seq = 1;
     int request_seq;
     RequestType processCreation;
@@ -71,7 +69,7 @@ class DAPAdapter : IAdapter
         PathFormat pathFormat;
         
         //TODO: Issue with linesStartAt1/columnsStartAt1: They default to one
-        Capability[11] capabilities = [
+        Capability[] capabilities = [
             { "linesStartAt1" },
             { "columnsStartAt1" },
             { "supportsVariableType" },
@@ -90,7 +88,7 @@ class DAPAdapter : IAdapter
     // NOTE: Set to true when server supports 
     struct ServerCapabilities
     {
-        Capability[34] capabilities = [
+        Capability[] capabilities = [
             { "supportsConfigurationDoneRequest" },
             { "supportsFunctionBreakpoints" },
             { "supportsConditionalBreakpoints" },
@@ -129,8 +127,9 @@ class DAPAdapter : IAdapter
     }
     ServerCapabilities server;
     
-    this()
+    this(ITransport t)
     {
+        super(t);
         string servercap;
         foreach (ref Capability capability; server.capabilities)
         {
@@ -145,16 +144,12 @@ class DAPAdapter : IAdapter
         logInfo("Server capabilities:%s", servercap);
     }
     
-    void attach(ITransport t)
-    {
-        transport = t;
-    }
-    
     // Parse incoming data from client to a message
+    override
     AdapterRequest listen()
     {
 LISTEN:
-        ubyte[] buffer = transport.receive();
+        ubyte[] buffer = receive();
         
         // Cast as string and validate
         const(char)[] rawmsg = cast(const(char)[])buffer;
@@ -281,6 +276,7 @@ LISTEN:
         return request;
     }
     
+    override
     void reply(AdapterReply response)
     {
         logTrace("Response=%s", response.type);
@@ -318,6 +314,7 @@ LISTEN:
         send(j);
     }
     
+    override
     void reply(AdapterError error)
     {
         logTrace("Error=%s", error.message);
@@ -335,6 +332,7 @@ LISTEN:
         send(j);
     }
     
+    override
     void event(AdapterEvent event)
     {
         logTrace("Event=%s", event.type);
@@ -362,8 +360,8 @@ LISTEN:
         send(j);
     }
     
-    void send(JSONValue json)
+    void send(ref JSONValue json)
     {
-        transport.send(cast(ubyte[])encodeHTTP(json.toString()));
+        super.send(cast(ubyte[])json.toString());
     }
 }

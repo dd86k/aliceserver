@@ -27,6 +27,9 @@ class HTTPStdioTransport : ITransport
 
     void send(ubyte[] data)
     {
+        stdout.write(
+            "Content-Length: ", data.length, "\r\n",
+            "\r\n");
         stdout.rawWrite(data);
         stdout.flush();
     }

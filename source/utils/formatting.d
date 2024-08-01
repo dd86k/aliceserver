@@ -13,7 +13,7 @@ import core.stdc.stdio : sscanf;
 
 /// Unformat any type of number.
 /// Exceptions: None.
-/// Params: str = 
+/// Params: str = Input string.
 /// Returns: Unformatted number; Or zero.
 int unformat(string str)
 {
@@ -21,20 +21,21 @@ int unformat(string str)
     return sscanf(str.toStringz, "%i", &d) == 1 ? d : 0;
 }
 
-/// Wrap body with HTTP header, only Content-Length is added.
-/// Params: data = HTTP data.
-/// Returns: Formatted message.
-const(char)[] encodeHTTP(const(char)[] data)
+/// Parse string for integer using sscanf("%i").
+/// Params:
+///     input = Input string.
+///     value = Parsed value.
+/// Returns: True if successful.
+bool parse(string input, long *value)
 {
-    return text(
-        "Content-Length: ", data.length, "\r\n",
-        "\r\n",
-        data);
+    assert(value);
+    return sscanf(input.toStringz, "%lli", value) > 0;
 }
 unittest
 {
-    assert(encodeHTTP("It's me") ==
-        "Content-Length: 7\r\n"~
-        "\r\n"~
-        "It's me");
+    long v;
+    assert(parse("123", &v));
+    assert(v == 123L);
+    assert(parse("0x123", &v));
+    assert(v == 0x123L);
 }

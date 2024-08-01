@@ -126,17 +126,30 @@ struct AdapterError
     string message;
 }
 
-//TODO: .getCommandName?
-//      Since DAP and MI have different command names from request commands
-//TODO: Make this an abstract class?
-//      Would allow for:
-//      - A constructor to accept an ITransport interface.
-//      - An ITransport member available for derived classes.
-interface IAdapter
+abstract class Adapter
 {
-    void attach(ITransport);
+    this(ITransport t)
+    {
+        assert(t);
+        transport = t;
+    }
+    
+    void send(ubyte[] data)
+    {
+        transport.send(data);
+    }
+    
+    ubyte[] receive()
+    {
+        return transport.receive();
+    }
+    
     AdapterRequest listen();
     void reply(AdapterReply msg);
     void reply(AdapterError msg);
     void event(AdapterEvent msg);
+
+private:
+
+    ITransport transport;
 }
