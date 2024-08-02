@@ -32,9 +32,9 @@ class HTTPStdioTransport : ITransport
             "Content-Length: %u\r\n"~
             "\r\n",
             data.length);
-        auto thing = stdout.lockingBinaryWriter();
-        thing.rawWrite(header);
-        thing.rawWrite(data);
+        stdout.rawWrite(header);
+        stdout.rawWrite(data);
+        stdout.flush();
     }
     
     // NOTE: This is written on a "per-line" basis, because stdout is a stream,

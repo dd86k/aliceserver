@@ -32,7 +32,7 @@ enum Op : char
 }
 __gshared
 {
-    ProcessPipes proc;
+    ProcessPipes server;
     bool overbose;
     int current_seq = 1;
 }
@@ -72,23 +72,25 @@ JSONValue serverSend(JSONValue jobj)
     size_t bodylen  = bodydata.length;
     
     log(Op.sending, bodydata);
-    proc.stdin.write(
+    server.stdin.write(
     "Content-Length: ", bodylen, "\r\n"~
     "\r\n",
     bodydata);
-    proc.stdin.flush();
+    server.stdin.flush();
     
     __gshared char[4096] buffer;
-
+    
 Lread:
+    log(Op.trace, "Reading...");
     //TODO: Read until empty in case of multiple header fields
-    string header = strip( proc.stdout.readln() );
-    cast(void)proc.stdout.readln();
+    string header = strip( server.stdout.readln() );
+    
+    cast(void)server.stdout.readln();
     
     log(Op.trace, "Header: %s", header);
     string[] parts = header.split(":");
     size_t sz = to!size_t(strip(parts[1]));
-    const(char)[] httpbody = proc.stdout.rawRead(buffer[0..sz]);
+    const(char)[] httpbody = server.stdout.rawRead(buffer[0..sz]);
     
     log(Op.receiving, cast(string)httpbody);
     
@@ -162,11 +164,11 @@ OPTIONS`, ores.options);
     // Spawn server, redirect all except stderr (inherits handle)
     log(Op.info, "Starting %s...", oserver);
     string[] launchopts = svropts ~ (args.length >= 1 ? args[1..$] : []);
-    proc = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
+    server = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
     // NOTE: waitTimeout is only defined for Windows,
     //       despite Pid.performWait being available for POSIX
     Thread.sleep(250.msecs);
-    if (tryWait(proc.pid).terminated)
+    if (tryWait(server.pid).terminated)
         return error(2, "Could not launch server");
     
     //bool serverSupportsXYZ;

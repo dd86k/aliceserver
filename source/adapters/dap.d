@@ -152,13 +152,8 @@ class DAPAdapter : Adapter
 Llisten:
         ubyte[] buffer = receive();
         
-        // Cast as string and validate
-        const(char)[] rawmsg = cast(const(char)[])buffer;
-        logTrace("Reply: Got %d bytes", rawmsg.length);
-        validate(rawmsg);
-        
         // Parse JSON into a message
-        JSONValue j = parseJSON(rawmsg);
+        JSONValue j = parseJSON(cast(immutable(char)[])buffer);
         request_seq = cast(int)j["seq"].integer; // Must be 32-bit int
         string mtype = j["type"].str;
         if (mtype != "request")

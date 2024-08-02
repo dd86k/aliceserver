@@ -6,6 +6,7 @@
 module adapters.base;
 
 import transports.base;
+import logging;
 
 enum RequestType
 {
@@ -138,12 +139,15 @@ abstract class Adapter
     
     void send(ubyte[] data)
     {
+        logTrace("Sending %u bytes", data.length);
         transport.send(data);
     }
     
     ubyte[] receive()
     {
-        return transport.receive();
+        ubyte[] data = transport.receive();
+        logTrace("Received %u bytes", data.length);
+        return data;
     }
     
     AdapterRequest listen();
