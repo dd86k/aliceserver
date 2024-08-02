@@ -108,10 +108,6 @@ void onEvent(JSONValue j)
     log(Op.info, "event: %s", j);
 }
 
-//
-// CLI
-//
-
 int main(string[] args)
 {
     string oserver;
@@ -132,9 +128,8 @@ int main(string[] args)
     
     if (ores.helpWanted)
     {
-        defaultGetoptPrinter(`DAP client tester
-
-Supports DAP servers like "gdb -i dap" and "lldb-vscode"
+        defaultGetoptPrinter(
+`Test DAP client, should support "gdb -i dap" and "lldb-vscode"
 
 OPTIONS`, ores.options);
         return 0;
@@ -148,10 +143,8 @@ OPTIONS`, ores.options);
     case "lldb": // "lldb-vscode" alias
         svropts = [ "lldb-vscode" ];
         break;
-    case null: // default
-        svropts = [ defaultServer ];
-        
-        // If I can't see it, I'll build it!
+    case string.init: // default
+        // Can't see it, build it
         if (exists(defaultServer) == false)
         {
             log(Op.important, "Server not found locally, building...");
@@ -159,6 +152,8 @@ OPTIONS`, ores.options);
             if (code)
                 return error(code, "Compilation ended in error, aborting");
         }
+        
+        svropts = [ defaultServer ];
         break;
     default: // custom
         svropts = [ oserver ];
@@ -170,7 +165,7 @@ OPTIONS`, ores.options);
     proc = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
     // NOTE: waitTimeout is only defined for Windows,
     //       despite Pid.performWait being available for POSIX
-    Thread.sleep(1000.msecs);
+    Thread.sleep(250.msecs);
     if (tryWait(proc.pid).terminated)
         return error(2, "Could not launch server");
     
