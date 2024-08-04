@@ -7,6 +7,8 @@ module adapters.base;
 
 import transports.base;
 import logging;
+import core.thread : Thread;
+import std.datetime : Duration, dur;
 
 enum RequestType
 {
@@ -71,6 +73,8 @@ enum OptionType
 }
 
 /// What should the server do on a closing request?
+///
+/// Used internally.
 enum CloseAction
 {
     nothing,
@@ -145,7 +149,15 @@ abstract class Adapter
     
     ubyte[] receive()
     {
+        static immutable Duration sleepTime = dur!"msecs"(2000);
+    Lread:
         ubyte[] data = transport.receive();
+        if (data is null)
+        {
+            logInfo("Got empty buffer, sleeping for %s", sleepTime);
+            Thread.sleep(sleepTime);
+            goto Lread;
+        }
         logTrace("Received %u bytes", data.length);
         return data;
     }
