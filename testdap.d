@@ -81,7 +81,6 @@ JSONValue serverSend(JSONValue jobj)
     __gshared char[4096] buffer;
     
 Lread:
-    log(Op.trace, "Reading...");
     //TODO: Read until empty in case of multiple header fields
     string header = strip( server.stdout.readln() );
     
