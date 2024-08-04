@@ -9,8 +9,8 @@ import std.json;
 import std.string : chompPrefix;
 import std.conv : text;
 import std.utf : validate;
-import adapters;
-import transports;
+import adapters.base;
+import transports.base : ITransport;
 import logging;
 import utils.json;
 
@@ -131,15 +131,12 @@ class DAPAdapter : Adapter
     this(ITransport t)
     {
         super(t);
+        
+        // Print server capabilities
         string servercap;
         foreach (ref Capability capability; server.capabilities)
-        {
             if (capability.supported)
-            {
-                servercap ~= text(" ",
-                    capability.prettyName());
-            }
-        }
+                servercap ~= text(" ", capability.prettyName());
         if (servercap == string.init)
             servercap = " none";
         logInfo("Server capabilities:%s", servercap);
@@ -149,7 +146,7 @@ class DAPAdapter : Adapter
     override
     AdapterRequest listen()
     {
-Llisten:
+    Lread:
         ubyte[] buffer = receive();
         
         // Parse JSON into a message
@@ -226,7 +223,7 @@ Llisten:
             AdapterReply res;
             res.type = RequestType.initializaton;
             reply(res);
-            goto Llisten;
+            goto Lread;
         // Client configuration done, server services not required
         case "configurationDone":
             JSONValue jconfigdone;
@@ -236,7 +233,7 @@ Llisten:
             jconfigdone["success"] = true;
             jconfigdone["command"] = "configurationDone";
             send(jconfigdone);
-            goto Llisten;
+            goto Lread;
         case "launch":
             processCreation = request.type = RequestType.spawn;
             JSONValue jargs;
