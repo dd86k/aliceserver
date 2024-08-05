@@ -88,7 +88,8 @@ class FileAppender : IAppender
     
     void log(ref LogMessage message, string mod, int line)
     {
-        file.writefln("%-24s %-8s [%s:%d] %s",
+        // 2024-02-06T10:26:23.0468545
+        file.writefln("%-27s %-8s [%s:%d] %s",
             message.time.toISOExtString(),
             logLevelName(message.level),
             mod, line,
