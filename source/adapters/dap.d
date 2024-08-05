@@ -366,6 +366,14 @@ class DAPAdapter : Adapter
         send(j);
     }
     
+    override
+    void close()
+    {
+        // Send empty reply.
+        // This is to reply to a close request.
+        reply(AdapterReply());
+    }
+    
     private
     void send(ref JSONValue json)
     {

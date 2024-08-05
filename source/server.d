@@ -19,6 +19,9 @@ import adbg.debugger.process;
 import adbg.debugger.exception;
 import adbg.error;
 
+enum SERVER_NAME    = "Aliceserver";
+enum SERVER_VERSION = "0.0.0";
+
 /// Adapter type.
 enum AdapterType { dap, mi }
 
@@ -96,9 +99,7 @@ LISTEN:
             if (receiveTimeout(quitTimeout, (MsgQuitAck mack) {}) == false)
                 logWarn("Debugger did not reply in %s, quitting anyway", quitTimeout);
         }
-        adapter.reply(AdapterReply());
-        // TODO: adapter.close()
-        //       Will be required for multi-sessions
+        adapter.close();
         return;
     default:
         logError("Request not implemented: %s", request.type);

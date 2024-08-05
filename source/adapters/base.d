@@ -15,9 +15,14 @@ enum RequestType
     unknown,
     
     initializaton,
+    /// Spawn process via debugger
     spawn,
-    launch = spawn, /// alias for launch
+    launch = spawn, /// alias for `spawn`
+    /// Attach debugger to process
     attach,
+    
+    /// Continue
+    go,
     
     /// If attached, detaches the debuggee. No effect if launched.
     detach,
@@ -146,6 +151,10 @@ abstract class Adapter
         logTrace("Sending %u bytes", data.length);
         transport.send(data);
     }
+    void send(const(char)[] data)
+    {
+        send(cast(ubyte[])data);
+    }
     
     ubyte[] receive()
     {
@@ -166,6 +175,7 @@ abstract class Adapter
     void reply(AdapterReply msg);
     void reply(AdapterError msg);
     void event(AdapterEvent msg);
+    void close();
 
 private:
 
