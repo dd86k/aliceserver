@@ -1,5 +1,11 @@
 /// GDB/MI adapter.
 ///
+/// Reference:
+/// - https://ftp.gnu.org/old-gnu/Manuals/gdb/html_chapter/gdb_22.html
+/// - https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html
+/// - https://github.com/lldb-tools/lldb-mi
+/// - gdb: gdb/mi
+///
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
@@ -10,6 +16,7 @@ import transports.base : ITransport;
 import logging;
 import server : SERVER_NAME, SERVER_VERSION;
 import core.vararg;
+import std.conv;
 import std.format;
 import std.array : replace, split;
 import std.ascii : isWhite;
@@ -44,12 +51,6 @@ import std.ascii : isWhite;
 //       Debian 10: GDB 8.2
 //       Debian 11: GDB 10.1
 //       Debian 12: GDB 13.1
-
-// Reference:
-// - https://ftp.gnu.org/old-gnu/Manuals/gdb/html_chapter/gdb_22.html
-// - https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html
-// - https://github.com/lldb-tools/lldb-mi
-// - gdb: gdb/mi
 
 enum MIType : char
 {
@@ -158,8 +159,20 @@ class MIAdapter : Adapter
         // Filter by recognized requests
         if (req) switch (*req) {
         case RequestType.attach:
+            if (args.length < 2)
+            {
+                reply(AdapterError("Missing process-id argument."));
+                goto Lread;
+            }
+            
+            try
+                request.attachOptions.pid = to!uint(args[1]);
+            catch (Exception ex)
+            {
+                reply(AdapterError(format("Illegal process-id: '%s'.", args[1])));
+                goto Lread;
+            }
             request.type = RequestType.attach;
-            //areq.attachOptions.pid = 
             return request;
         case RequestType.close:
             request.type = RequestType.close;
@@ -169,12 +182,13 @@ class MIAdapter : Adapter
         
         // Filter by specific GDB or LLDB command
         switch (requestName) {
+        //case "mi-async": // TODO: mi-async
         case "show":
             // NOTE: "show" alone makes GDB show everything
-            //       and then quits.
+            //       and then quits, without saying anything else.
             if (args.length < 1)
             {
-                send(cast(ubyte[])"^done\n");
+                reply(AdapterReply());
                 goto Lread;
             }
             
