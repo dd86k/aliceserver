@@ -25,6 +25,7 @@ else
 void main(string[] args)
 {
     LogLevel ologlevel = DEFAULT_LEVEL;
+    bool olog;
     string ologfile;
     ServerSettings osettings;
     
@@ -51,7 +52,8 @@ void main(string[] args)
             writeln("mi ..... GDB/MI (GDB Machine Interface)");
             exit(0);
         },
-        "logpath",  `Logger: Set file path for logging`, &ologfile,
+        "log",      `Logger: Enable logging to stderr`, &olog,
+        "logpath",  `Logger: Enable logging to file`, &ologfile,
         "loglevel", `Logger: Set path`, &ologlevel,
         "ver",      `Show only version and quit`, {
             writeln(PROJECT_VERSION);
@@ -92,7 +94,8 @@ void main(string[] args)
     
     // Setup logger
     logSetLevel(ologlevel);
-    logAddAppender(new ConsoleAppender());
+    if (olog)
+        logAddAppender(new ConsoleAppender());
     if (ologfile)
         logAddAppender(new FileAppender(ologfile));
     
