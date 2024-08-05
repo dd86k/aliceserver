@@ -4,21 +4,35 @@ Debugger server supporting the DAP protocol using Alicedbg.
 
 Major work in progress! Don't expect it to replace GDB or LLDB.
 
+Why?
+
+- lldb-mi is generally not available as prebuilt binaries.
+- lldb-vscode/lldb-dap requires Python.
+- gdb-mi is fine, but GDC is generally unavailable on Windows.
+- gdb-dap uses and requires Python.
+- mago-mi is only available for Windows on x86/AMD64 platforms.
+- Making this server will provide better direction for my [Alicedbg](https://github.com/dd86k/alicedbg) project.
+
 # Implementation Details
 
 ## DAP
 
-The Debugger Adapter Protocol leaves a lot of nuance regarding implementation
+The [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
+is a protocol introduced in Visual Studio Code.
+
+The protocol leaves a lot of nuance regarding implementation
 details, which can be a little infuriating to work with.
 
 This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
 double-precision floating-point number (`double`, IEEE 754).
 
-### Connection
+### Connection Details
 
 By default, single-session mode is used, where standard streams are used
 to communicate with the client (tool).
+
+Messages are encoded in JSON using an HTTP-like wrapper.
 
 In single-session mode, the server starts by reading a line from the program's
 _standard input stream_ ("stdin") by reading characters until a newline is
@@ -28,21 +42,30 @@ This is used to get the (currently only) HTTP-like header field, `Content-Length
 describing the size of the HTTP body. Then, the server reads N amount of bytes
 described by the `Content-Length` field as an Integer.
 
-A typical message may look like this:
+A typical request may look like this:
 
 ```text
 Content-Length: 82\r\n
 \r\n
-{"seq":1,"type":"request","command":"initialize","arguments":{"adapterId":22"test"}}
+{"seq":1,"type":"request","command":"initialize","arguments":{"adapterId":"test"}}
+```
+
+And a typical response may look like this:
+
+```text
+Content-Length: 81\r\n
+\r\n
+{"command":"initialize","request_seq":1,"seq":1,"success":true,"type":"response"}
 ```
 
 Both client and server maintain their own sequence number, starting at 1.
 
-NOTE: lldb-vscode starts their seq number at 0.
+NOTE: lldb-vscode starts their seq number at 0, while not as per specification,
+it poses no changes to its usage.
 
 Multi-session mode is not currently supported.
 
-### Requests
+### Supported Requests
 
 Implementation-specific details:
 - `launch` request:
@@ -96,7 +119,7 @@ Command support:
 | `variables` | ❌ | |
 | `writeMemory` | ❌ | |
 
-### Events
+### Supported Events
 
 | Event | Supported? | Comments |
 |---|---|---|
@@ -120,8 +143,60 @@ Command support:
   
 ## MI
 
-The Machine Interface protocol is currently not supported, but could be in
-some future.
+The [Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
+protocol is a line-oriented protocol introduced in GDB.
+
+### Connection Details
+
+In a typical setting, MI uses the standard streams to communicate with the child
+process.
+
+Once the server starts running, it may already emiting log streams,
+until `(gdb)\n` is printed, indicating that the server is ready to receive
+commands.
+
+Commands are roughly the same as you would use on GDB:
+
+```text
+exec-run\n
+```
+
+Replies to commands start with a `^` character:
+
+```text
+^done\n
+```
+
+Or on error (note: `\\n` and `\\"` denote c-string formatting as-is):
+
+```text
+^error,msg="Example text.\\n\\nValue: \\"Test\\""\n
+```
+
+Events, console streams, logs, start with a significant unique character.
+
+For example, command input (e.g., `test\n`) will be replied as `&"test\\n"\n`
+using c-string formatting.
+
+| Reply/Event | Character | Description |
+|---|---|---|
+| Result | `^` | Used to reply to a command, if successful or errorneous. |
+| Exec | `*` | Async execution state changed. |
+| Notify | `=` | Async notification related to the debugger. |
+| Status | `+` | Async status change. |
+| Console Stream | `~` | Console output. |
+| Target Stream | `@` | |
+| Log Stream | `&` | Typically for repeating commands as interpreted by the server. |
+
+Some commands may start with `-`.
+
+### Supported Requests
+
+TODO.
+
+### Supported Events
+
+TODO.
 
 # Licensing
 
