@@ -28,6 +28,10 @@ This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
 double-precision floating-point number (`double`, IEEE 754).
 
+DAP is capable of initiating multiple debugging sessions.
+
+Aliceserver does not yet support multi-session.
+
 ### Connection Details
 
 By default, single-session mode is used, where standard streams are used
@@ -146,6 +150,8 @@ Command support:
 
 The [Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
 protocol is a line-oriented protocol introduced in GDB.
+
+To my knowledge, MI is not capable of multi-session.
 
 ### Connection Details
 
