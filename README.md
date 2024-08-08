@@ -1,17 +1,18 @@
 # Aliceserver
 
-Debugger server supporting the DAP protocol using Alicedbg.
+Debugger server supporting the DAP and MI protocols using
+[Alicedbg](https://github.com/dd86k/alicedbg).
 
-Major work in progress! Don't expect it to replace GDB or LLDB.
+Major work in progress! Don't expect it to replace GDB or LLDB any time soon.
 
 Why?
 
-- lldb-mi is generally not available as prebuilt binaries.
+- lldb-mi is generally not available as prebuilt binaries anymore after LLDB 9.0.1.
 - lldb-vscode/lldb-dap requires Python.
 - gdb-mi is fine, but GDC is generally unavailable on Windows.
 - gdb-dap uses and requires Python.
 - mago-mi is only available for Windows on x86/AMD64 platforms.
-- Making this server will provide better direction for my [Alicedbg](https://github.com/dd86k/alicedbg) project.
+- Making this server provides a better direction for future Alicedbg features.
 
 # Implementation Details
 
@@ -158,7 +159,7 @@ commands.
 Commands are roughly the same as you would use on GDB:
 
 ```text
-exec-run\n
+attach 12345\n
 ```
 
 Replies to commands start with a `^` character:
@@ -192,7 +193,12 @@ Some commands may start with `-`.
 
 ### Supported Requests
 
-TODO.
+NOTE: LLDB command variants currently not supported.
+
+| Request | Commands | Supported? | Comments |
+|---|---|---|---|
+| Attach | `attach` | ✔️ | |
+| Launch | `exec-run` | ❌ | |
 
 ### Supported Events
 
