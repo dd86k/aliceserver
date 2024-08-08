@@ -57,8 +57,8 @@ void main(string[] args)
         },
         "list-adapters",  `List available adapters`, &cliListAdapters,
         "log",      `Logger: Enable logging to stderr`, &olog,
-        "logpath",  `Logger: Enable logging to file`, &ologfile,
-        "loglevel", `Logger: Set path`, &ologlevel,
+        "logpath",  `Logger: Enable logging to file path`, &ologfile,
+        "loglevel", `Logger: Set log level (default=info)`, &ologlevel,
         "ver",      `Show only version and quit`, {
             writeln(PROJECT_VERSION);
             exit(0);
