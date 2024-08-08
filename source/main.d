@@ -22,6 +22,14 @@ else
     private enum DEFAULT_LEVEL = LogLevel.info;
 }
 
+void cliListAdapters()
+{
+    writeln("Adapters:");
+    writeln("dap .... (default) Debug Adapter Protocol");
+    writeln("mi ..... GDB/MI (GDB Machine Interface)");
+    exit(0);
+}
+
 void main(string[] args)
 {
     LogLevel ologlevel = DEFAULT_LEVEL;
@@ -43,15 +51,11 @@ void main(string[] args)
                 osettings.adapterType = AdapterType.mi;
                 break;
             default:
-                throw new Exception(`Unknown adapter`);
+                write("Invalid adapter. Available adapters listed below.\n\n");
+                cliListAdapters();
             }
         },
-        "list-adapters",  `List available adapters`, {
-            writeln("Adapters:");
-            writeln("dap .... (default) Debug Adapter Protocol");
-            writeln("mi ..... GDB/MI (GDB Machine Interface)");
-            exit(0);
-        },
+        "list-adapters",  `List available adapters`, &cliListAdapters,
         "log",      `Logger: Enable logging to stderr`, &olog,
         "logpath",  `Logger: Enable logging to file`, &ologfile,
         "loglevel", `Logger: Set path`, &ologlevel,
@@ -99,14 +103,11 @@ void main(string[] args)
     if (ologfile)
         logAddAppender(new FileAppender(ologfile));
     
-    try
-    {
-        serverStart(osettings);
-    }
+    try serverStart(osettings);
     catch (Exception ex)
     {
         debug logCritical("Unhandled Exception: %s", ex);
-        else  logCritical(`/!\ %s`, ex.msg);
+        else  logCritical(`/!\ Critical: %s`, ex.msg);
         exit(2);
     }
 }
