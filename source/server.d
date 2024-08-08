@@ -5,22 +5,30 @@
 /// License: BSD-3-Clause-Clear
 module server;
 
-// std
 import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-// self
+import config;
 import logging;
 import adapters;
 import transports;
-// ext
-import adbg.debugger.process;
-import adbg.debugger.exception;
-import adbg.error;
+import debuggers;
 
-enum SERVER_NAME    = "Aliceserver";
-enum SERVER_VERSION = "0.0.0";
+// NOTE: Structure
+//
+//       The server can ultimately handle one adapter protocol, and
+//       if the adapter allows it, the server can handle multiple
+//       debugger sessions, often called "multi-session" servers.
+//
+//       The main thread handles the adapter instance, and one or
+//       more threads are spun on new debugger session requests.
+//
+//       Child thread handle their own debugger instance.
+//       (TODO) Attach debugger ID to requests.
+
+debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
+else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
 
 /// Adapter type.
 enum AdapterType { dap, mi }
@@ -29,101 +37,163 @@ enum AdapterType { dap, mi }
 struct ServerSettings
 {
     AdapterType adapterType;
+    bool logStderr;
+    string logFile;
+    LogLevel logLevel = DEFAULT_LOGLEVEL;
 }
 
-/// Start server loop.
-///
-/// Right now, only single-session mode and DAP are supported.
-void serverStart(ServerSettings settings)
+private
 {
-    final switch (settings.adapterType) with (AdapterType) {
-    case dap:
-        adapter = new DAPAdapter(new HTTPStdioTransport());
-        break;
-    case mi:
-        adapter = new MIAdapter(new StdioTransport());
-        break;
-    }
+    immutable string messageDebuggerActive   = "Debugger is already active";
+    immutable string messageDebuggerUnactive = "Debugger is not active";
+}
+
+/// Starts the initial server instance.
+void startServer(Adapter adapter) // Handles adapter
+{
+    assert(adapter);
     
+    // Get requests
     logTrace("Listening...");
+    bool debuggerActive;
+    Tid debuggerTid;
     AdapterRequest request = void;
-LISTEN:
+Lrequest:
     try request = adapter.listen();
     catch (Exception ex)
     {
         logError(ex.msg);
         adapter.reply(AdapterError(ex.msg));
-        goto LISTEN;
+        goto Lrequest;
     }
     
+    // Process request depending on type
     switch (request.type) {
+    // Launch process with debugger
     case RequestType.launch:
-        if (debugger.active)
+        // TODO: Accept multi-session
+        if (debuggerActive)
         {
-            adapter.reply(AdapterError("Debugger already active"));
-            break;
+            adapter.reply(AdapterError(messageDebuggerActive));
+            goto Lrequest;
         }
-        debugger.tid = spawn(&handleDebugger, thisTid,
+        
+        debuggerTid = spawn(&startDebugger, thisTid,
             DebuggerStartOptions(request.launchOptions.path));
+        
+        MsgReply reply = receiveOnly!MsgReply;
+        if (reply.message)
+        {
+            adapter.reply(AdapterError(reply.message));
+            goto Lrequest;
+        }
+        
+        adapter.reply(AdapterReply());
+        debuggerActive = true;
         break;
+    // Attach debugger to process
     case RequestType.attach:
-        if (debugger.active)
+        // TODO: Accept multi-session
+        if (debuggerActive)
         {
-            adapter.reply(AdapterError("Debugger already active"));
-            break;
+            adapter.reply(AdapterError(messageDebuggerActive));
+            goto Lrequest;
         }
-        debugger.tid = spawn(&handleDebugger, thisTid,
+        
+        debuggerTid = spawn(&startDebugger, thisTid,
             DebuggerStartOptions(request.attachOptions.pid));
+        
+        MsgReply reply = receiveOnly!MsgReply;
+        if (reply.message)
+        {
+            adapter.reply(AdapterError(reply.message));
+            goto Lrequest;
+        }
+        
+        adapter.reply(AdapterReply());
+        debuggerActive = true;
         break;
+    // Detach debugger from process
     case RequestType.detach:
-        if (debugger.active == false) // Nothing to detach from
+        if (debuggerActive == false) // Nothing to detach from
         {
-            break;
+            adapter.reply(AdapterError(messageDebuggerUnactive));
+            goto Lrequest;
         }
-        send(debugger.tid, MsgDetach());
+        
+        send(debuggerTid, RequestDetach());
+        
+        MsgReply reply = receiveOnly!MsgReply;
+        if (reply.message)
+        {
+            adapter.reply(AdapterError(reply.message));
+            goto Lrequest;
+        }
+        
+        adapter.reply(AdapterReply());
+        debuggerActive = false;
         break;
+    // Terminate process
     case RequestType.terminate:
-        if (debugger.active == false) // Nothing to terminate
+        if (debuggerActive == false) // Nothing to terminate
         {
-            break;
+            adapter.reply(AdapterError(messageDebuggerUnactive));
+            goto Lrequest;
         }
-        send(debugger.tid, MsgTerminate());
+        
+        send(debuggerTid, RequestTerminate());
+        
+        MsgReply reply = receiveOnly!MsgReply;
+        if (reply.message)
+        {
+            adapter.reply(AdapterError(reply.message));
+            goto Lrequest;
+        }
+        
+        adapter.reply(AdapterReply());
+        debuggerActive = false;
         break;
+    // Either detaches or terminates process depending how the debugger is attached
     case RequestType.close:
-        if (debugger.active && request.closeOptions.action != CloseAction.nothing)
+        if (debuggerActive && request.closeOptions.action != CloseAction.nothing)
         {
             logTrace("Sending debugger termination signal...");
-            send(debugger.tid, MsgQuit());
-            logTrace("Wait for debugger to quit...");
+            send(debuggerTid, RequestQuit());
+            
             static immutable Duration quitTimeout = 5.seconds;
-            if (receiveTimeout(quitTimeout, (MsgQuitAck mack) {}) == false)
+            logTrace("Waiting for debugger to quit...");
+            if (receiveTimeout(quitTimeout, (MsgReply reply) {}) == false)
                 logWarn("Debugger did not reply in %s, quitting anyway", quitTimeout);
         }
+        
+        // TODO: Multi-session: Return to listen to requests if adapterCount > 0
         adapter.close();
         return;
     default:
-        logError("Request not implemented: %s", request.type);
+        string e = format("Request not implemented: %s", request.type);
+        logError(e);
+        adapter.reply(AdapterError(e));
     }
-    goto LISTEN;
+    
+    goto Lrequest;
 }
 
 private:
 
-struct DebuggerInfo
-{
-    bool active;
-    adbg_process_t *process;
-    Tid tid;
-}
+// NOTE: spawn() does not allow thread-local data, like object instances
 
 //
 // Messages
 //
 
-struct MsgDetach {}
-struct MsgTerminate {}
-struct MsgQuit {}
-struct MsgQuitAck {}
+struct MsgReply
+{
+    string message;
+}
+
+struct RequestDetach {}
+struct RequestTerminate {}
+struct RequestQuit {}
 
 //TODO: Add configuration settings (mainly breakpoints) before starting
 struct DebuggerStartOptions
@@ -156,104 +226,71 @@ struct DebuggerStartOptions
     }
 }
 
-__gshared Adapter adapter;
-__gshared DebuggerInfo debugger;
-
-//TODO: Should errors and replies be sent back to server?
-void handleDebugger(Tid parent, DebuggerStartOptions options)
+// Start a new debugger instance.
+//
+// The only message this is allowed to send is MsgReply.
+void startDebugger(Tid parent, DebuggerStartOptions start) // Handles debugger
 {
-    debugger.process = options.type == RequestType.attach ?
-        adbg_debugger_attach(options.attachOptions.pid, 0) :
-        adbg_debugger_spawn(options.launchOptions.path.toStringz(), 0);
-    if (debugger.process == null)
-    {
-        scope errmsg = cast(string)fromStringz(adbg_error_msg());
-        logError("Debugger: %s", errmsg);
-        debugger.active = false;
-        adapter.reply(AdapterError(errmsg));
-        return;
-    }
+    // Select debugger
+    IDebugger debugger = new Alicedbg();
     
-    Tid debugger_events_tid = spawn(&handleDebuggerEvents, thisTid);
-
-    //TODO: Add logging for debug session here
-    //      Client would like to know everything related to debug session
-    //      but not the internal state of the debugger server.
-    
-    debugger.active = true;
-    AdapterReply res;
-    res.type = options.type;
-    adapter.reply(res);
-    
-    bool done;
-    while (done == false)
-    {
-        receive(
-            (MsgDetach mdetach) {
-                if (adbg_debugger_detach(debugger.process))
-                {
-                    adapter.reply(AdapterError(
-                        cast(string)fromStringz(adbg_error_msg())
-                    ));
-                }
-                else
-                {
-                    send(debugger_events_tid, MsgQuit());
-                    res.type = RequestType.detach;
-                    adapter.reply(res);
-                }
-            },
-            (MsgTerminate mterminate) {
-            },
-            (MsgQuit mquit) {
-                logTrace("Debugger: Closing debugger...");
-                send(parent, MsgQuitAck());
-                send(debugger_events_tid, MsgQuit());
-                done = true;
-            }
-        );
-    }
-}
-
-void handleDebuggerEvents(Tid parent)
-{
-    bool done;
-    while (done == false)
-    {
-        if (adbg_debugger_wait(debugger.process, &debuggerException))
+    // Hook debugger to process
+    switch (start.type) with (RequestType) {
+    case launch:
+        try debugger.launch(start.launchOptions.path, null, null);
+        catch (Exception ex)
         {
-            string errmsg = cast(string)fromStringz(adbg_error_msg());
-            logError("EventHandler: %s", errmsg);
-            //send(Msg
+            send(parent, MsgReply(ex.msg));
             return;
         }
-        receiveTimeout(25.msecs,
-            (MsgQuit mquit) {
-                logTrace("Closing event handler thread...");
-                done = true;
-            }
-        );
-    }
-}
-
-string eventName(int type)
-{
-    switch (type) with (AdbgEvent) {
-    case exception: return "Exception";
-    default:        return "Unknown";
-    }
-}
-
-extern (C)
-void debuggerException(adbg_process_t *proc, int type, void *data)
-{
-    logTrace("Event: %s (%d)", eventName(type), type);
-    switch (type) with (AdbgEvent) {
-    case exception:
-        adbg_exception_t *ex = cast(adbg_exception_t*)data;
-        //adapter.event(AdapterEvent());
+        
+        logInfo("Debugger launched '%s'", start.launchOptions.path);
+        send(parent, MsgReply());
+        break;
+    case attach:
+        try debugger.attach(start.attachOptions.pid);
+        catch (Exception ex)
+        {
+            send(parent, MsgReply(ex.msg));
+            return;
+        }
+        
+        logInfo("Debugger attached to process %d", start.attachOptions.pid);
+        send(parent, MsgReply());
         break;
     default:
+        string e = format("Unimplemented start request: %s", start.type);
+        logCritical(e);
+        send(parent, MsgReply(e));
         return;
     }
+    
+    // Now accepting requests
+    bool active = true;
+    while (active) receive(
+        (RequestDetach req) {
+            logTrace("Debugger: Detaching debugger from process...");
+            /*
+            try debugger.detach();
+            catch (Exception ex)
+            {
+                send(parent, MsgReply(ex.msg));
+                return;
+            }
+            send(parent, MsgReply());
+            */
+            send(parent, MsgReply());
+            active = false;
+        },
+        (RequestTerminate req) {
+            logTrace("Debugger: Terminating process...");
+            send(parent, MsgReply());
+            active = false;
+        },
+        (RequestQuit req) {
+            logTrace("Debugger: Closing debugger...");
+            send(parent, MsgReply());
+            active = false;
+        }
+    );
 }

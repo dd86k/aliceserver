@@ -16,13 +16,21 @@ import std.conv;
 import core.sync.mutex;
 
 /// Log level used on a per-message basis.
+///
+/// The higher the level, the more verbose the logger will be. As in,
+/// "give me more information".
 enum LogLevel
 {
     none,
+    /// When the execution of the entire program cannot continue.
     critical,
+    /// When a specific action resulted in an error.
     error,
+    /// When a specific action can continue, but its setting was not optimal.
     warning,
+    /// Informational message.
     info,
+    /// Debugging traces. Information dump.
     trace,
 }
 

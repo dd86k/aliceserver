@@ -14,10 +14,11 @@ module adapters.mi;
 import adapters.base;
 import transports.base : ITransport;
 import logging;
-import server : SERVER_NAME, SERVER_VERSION;
+import config;
 import core.vararg;
 import std.conv;
 import std.format;
+import std.file : chdir;
 import std.array : replace, split;
 import std.ascii : isWhite;
 
@@ -52,6 +53,17 @@ import std.ascii : isWhite;
 //       Debian 11: GDB 10.1
 //       Debian 12: GDB 13.1
 
+// NOTE: code-debug
+//
+//     Launching GDB
+//       On Win32 platforms:
+//         - `file-exec-and-symbols` for file path and symbols (?)
+//         - if separateConsole is defined: `gdb-set new-console on`.
+//         - `exec-run` (+ `--start`)
+//
+//       On Linux, if separateConsole is defined, `inferior-tty-set TTY` is executed.
+//       
+
 enum MIType : char
 {
     // Replies
@@ -75,8 +87,8 @@ enum MIType : char
 
 enum MIVariant { gdb }
 
-private
-immutable string gdbString = "(gdb)\n";
+private immutable string gdbString = "(gdb)\n";
+private immutable string doneMsg = "^done\n";
 
 private
 string parseCString(string cstr)
@@ -115,11 +127,15 @@ class MIAdapter : Adapter
             requests["-gdb-detach"] = RequestType.detach;
             requests["attach"] = RequestType.attach;
             requests["exec-run"] = RequestType.go;
-            //requests["exec-interrupt"] = RequestType.pause;
             requests["exec-continue"] = RequestType.go;
-            //requests["exec-next"] = RequestType.go; // + --reverse
-            //requests["exec-step"] = RequestType.instructionStep; // + --reverse
-            //requests["exec-finish"] = RequestType.instructionStepOut; // + --reverse
+            //requests["exec-interrupt"] = RequestType.pause;
+            //requests["exec-next"] = RequestType.go; // [--reverse]
+            //requests["exec-step"] = RequestType.instructionStep; // [--reverse]
+            //requests["exec-finish"] = RequestType.instructionStepOut; // [--reverse]
+            //requests["break-insert"] = RequestType.breakFunction; // -f FUNCTION
+            //requests["break-condition"] = RequestType.breakCondition; // num condition
+            //requests["file-exec-and-symbols"] = RequestType.;
+            requests["environment-directory"] = RequestType.currentWorkingDirectory;
             // goto:
             //   break-insert -t TARGET
             //   exec-jump TARGET
@@ -146,15 +162,15 @@ class MIAdapter : Adapter
         string[] args = fullrequest.split!isWhite;
         if (args.length == 0)
         {
-            send("^done\n");
+            send(doneMsg);
             send(gdbString);
             goto Lread;
         }
         AdapterRequest request;
         
         // Recognized requests
-        string requestName = args[0];
-        RequestType *req = requestName in requests;
+        string requestCommand = args[0];
+        RequestType *req = requestCommand in requests;
         
         // Filter by recognized requests
         if (req) switch (*req) {
@@ -165,8 +181,7 @@ class MIAdapter : Adapter
                 goto Lread;
             }
             
-            try
-                request.attachOptions.pid = to!uint(args[1]);
+            try request.attachOptions.pid = to!uint(args[1]);
             catch (Exception ex)
             {
                 reply(AdapterError(format("Illegal process-id: '%s'.", args[1])));
@@ -174,6 +189,17 @@ class MIAdapter : Adapter
             }
             request.type = RequestType.attach;
             return request;
+        case RequestType.currentWorkingDirectory:
+            if (args.length < 2)
+            {
+                reply(AdapterError("Missing process-id argument."));
+                goto Lread;
+            }
+            
+            string dir = args[1];
+            chdir(dir);
+            reply(AdapterReply());
+            goto Lread;
         case RequestType.close:
             request.type = RequestType.close;
             return request;
@@ -181,7 +207,10 @@ class MIAdapter : Adapter
         }
         
         // Filter by specific GDB or LLDB command
-        switch (requestName) {
+        switch (requestCommand) {
+        case "exec-arguments":
+            // TODO: Save arguments
+            break;
         //case "mi-async": // TODO: mi-async
         case "show":
             // NOTE: "show" alone makes GDB show everything
@@ -192,53 +221,74 @@ class MIAdapter : Adapter
                 goto Lread;
             }
             
-            switch (args[1]) {
+            string showCommand = args[1];
+            switch (showCommand) {
             case "version":
-                enum SERVER_LINE = SERVER_NAME~" "~SERVER_VERSION~"\n";
-                send(SERVER_LINE);
-                send("^done\n");
+                static immutable string APPVERSION = "Aliceserver "~PROJECT_VERSION~"\n";
+                send(APPVERSION);
+                send(doneMsg);
                 send(gdbString);
                 goto Lread;
             default:
             }
-            break; // Fallthrough to error
+            
+            reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
+            break;
+        // Ignore list
+        case "gdb-set", "inferior-tty-set": goto Lread;
         default:
-            string e = format(`Unknown request: "%s"`, requestName);
-            logError(e);
-            reply(AdapterError(e));
-            goto Lread;
+            reply(AdapterError(format(`Unknown request: "%s"`, requestCommand)));
+            break;
         }
         
-        return AdapterRequest();
+        goto Lread;
     }
     
     override
     void reply(AdapterReply msg)
     {
-        // TODO: send command and newline
-        
-        send("^done\n");
+        send(doneMsg);
         send(gdbString);
     }
     
     override
     void reply(AdapterError msg)
     {
+        logError(msg.message);
         // Example: ^error,msg="Undefined command: \"%s\"."
-        send(format(`^error,msg="%s"`~"\n", formatCString( msg.message )));
+        send(format("^error,msg=\"%s\"\n", formatCString( msg.message )));
         send(gdbString);
     }
     
     override
     void event(AdapterEvent msg)
     {
-        
+        // Examples:
+        // - *stopped,reason="exited-normally"
+        // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
+        //   frame={addr="0x08048564",func="main",
+        //   args=[{name="argc",value="1"},{name="argv",value="0xbfc4d4d4"}],
+        //   file="myprog.c",fullname="/home/nickrob/myprog.c",line="68",
+        //   arch="i386:x86_64"}
+        switch (msg.type) with (EventType) {
+        /*case output:
+            send(format("~\"%s\"\n", formatCString( msg. )));
+            break;*/
+        case stopped:
+            send("*stopped,reason=\"exited-normally\"\n");
+            break;
+        default:
+            logWarn("Unimplemented event type: %s", msg.type);
+        }
     }
     
     override
     void close()
     {
-        // Do nothing
+        // When a quit request is sent, GDB simply quits without confirming,
+        // since the client is supposed to do that.
+        //
+        // So, do nothing!
     }
     
 private:

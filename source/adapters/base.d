@@ -15,11 +15,14 @@ enum RequestType
     unknown,
     
     initializaton,
+    
     /// Spawn process via debugger
-    spawn,
-    launch = spawn, /// alias for `spawn`
+    launch,
     /// Attach debugger to process
     attach,
+    
+    /// Set current working directory
+    currentWorkingDirectory,
     
     /// Continue
     go,
@@ -53,7 +56,7 @@ enum EventType
     memory,
     /// Module was (loaded, changed, removed).
     module_,
-    /// Debuggee or debugger message.
+    /// Debuggee process message.
     output,
     /// A sub-process was spawned, or removed.
     process,
@@ -138,6 +141,7 @@ struct AdapterError
     string message;
 }
 
+// Base Adapter class to 
 abstract class Adapter
 {
     this(ITransport t)
@@ -146,6 +150,7 @@ abstract class Adapter
         transport = t;
     }
     
+    // Send data to client.
     void send(ubyte[] data)
     {
         logTrace("Sending %u bytes", data.length);
@@ -156,6 +161,7 @@ abstract class Adapter
         send(cast(ubyte[])data);
     }
     
+    // Receive request from client.
     ubyte[] receive()
     {
         static immutable Duration sleepTime = dur!"msecs"(2000);
@@ -167,17 +173,22 @@ abstract class Adapter
             Thread.sleep(sleepTime);
             goto Lread;
         }
-        logTrace("Received %u bytes", data.length);
+        // NOTE: So far, only two adapters are available, and are text-based
+        logTrace("Received %u bytes: %s", data.length, cast(string)data);
         return data;
     }
     
+    // Listen for requests.
     AdapterRequest listen();
+    // Send a successful reply to request.
     void reply(AdapterReply msg);
+    // Send an error reply to request.
     void reply(AdapterError msg);
+    // Send an event.
     void event(AdapterEvent msg);
+    // Close adapter.
     void close();
 
 private:
-
     ITransport transport;
 }

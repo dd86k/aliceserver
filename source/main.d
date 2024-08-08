@@ -8,19 +8,9 @@ module main;
 import std.stdio;
 import std.getopt;
 import core.stdc.stdlib : exit;
-import config;
-import server;
-import logging;
+import config, server, logging;
+import adapters, debuggers, transports;
 import adbg.platform : ADBG_VERSION;
-
-debug
-{
-    private enum DEFAULT_LEVEL = LogLevel.trace;
-}
-else
-{
-    private enum DEFAULT_LEVEL = LogLevel.info;
-}
 
 void cliListAdapters()
 {
@@ -32,9 +22,6 @@ void cliListAdapters()
 
 void main(string[] args)
 {
-    LogLevel ologlevel = DEFAULT_LEVEL;
-    bool olog;
-    string ologfile;
     ServerSettings osettings;
     
     GetoptResult gres = void;
@@ -56,9 +43,9 @@ void main(string[] args)
             }
         },
         "list-adapters",  `List available adapters`, &cliListAdapters,
-        "log",      `Logger: Enable logging to stderr`, &olog,
-        "logpath",  `Logger: Enable logging to file path`, &ologfile,
-        "loglevel", `Logger: Set log level (default=info)`, &ologlevel,
+        "log",      `Logger: Enable logging to stderr`, &osettings.logStderr,
+        "logfile",  `Logger: Enable logging to file path`, &osettings.logFile,
+        "loglevel", `Logger: Set log level (default=info)`, &osettings.logLevel,
         "ver",      `Show only version and quit`, {
             writeln(PROJECT_VERSION);
             exit(0);
@@ -97,13 +84,26 @@ void main(string[] args)
     }
     
     // Setup logger
-    logSetLevel(ologlevel);
-    if (olog)
+    logSetLevel(osettings.logLevel);
+    if (osettings.logStderr)
         logAddAppender(new ConsoleAppender());
-    if (ologfile)
-        logAddAppender(new FileAppender(ologfile));
+    if (osettings.logFile)
+        logAddAppender(new FileAppender(osettings.logFile));
+    logInfo("New instance with options %s", osettings);
     
-    try serverStart(osettings);
+    // Select main adapter with transport
+    Adapter adapter = void;
+    final switch (osettings.adapterType) with (AdapterType) {
+    case dap:
+        adapter = new DAPAdapter(new HTTPStdioTransport());
+        break;
+    case mi:
+        adapter = new MIAdapter(new StdioTransport());
+        break;
+    }
+    
+    // Run server
+    try startServer(adapter);
     catch (Exception ex)
     {
         debug logCritical("Unhandled Exception: %s", ex);

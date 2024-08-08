@@ -20,11 +20,11 @@ import utils.json;
 // - lldb/tools/lldb-vscode/
 //   lldb-vscode is soon to be renamed lldb-dap
 
-// NOTE: Overview
+// NOTE: DAP notes
 //       - Client only sends Requests.
 //       - Server responses to requests with Reponses or Errors.
 //       - Server can send Events at any time.
-//       - DAP is used via HTTP, even with stdio streams.
+//       - DAP is encoded using an "HTTP-like" message with JSON as the body.
 
 // NOTE: Single-session DAP flow
 // * client spawns server and communiates via standard streams (stdio)
@@ -34,6 +34,13 @@ import utils.json;
 // client> (Optional) Sets breakpoints if any, then requests configurationDone
 // server> (Optional) Replies configurationDone
 // client> Sends an attach or spawn request
+
+// NOTE: Multi-session
+//
+//       It is possible to have a "newSession" request type from a DAP
+//       "StartDebuggingRequest" request.
+//       Then, server can call something like "addSession" once it supports
+//       multi-sessions.
 
 private
 struct Capability
@@ -235,7 +242,7 @@ class DAPAdapter : Adapter
             send(jconfigdone);
             goto Lread;
         case "launch":
-            processCreation = request.type = RequestType.spawn;
+            processCreation = request.type = RequestType.launch;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "path", request.launchOptions.path);
@@ -377,6 +384,6 @@ class DAPAdapter : Adapter
     private
     void send(ref JSONValue json)
     {
-        super.send(cast(ubyte[])json.toString());
+        super.send(json.toString());
     }
 }
