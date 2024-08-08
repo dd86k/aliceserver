@@ -21,14 +21,14 @@ class Alicedbg : IDebugger
     {
         process = adbg_debugger_spawn(exec.toStringz(), 0);
         if (process == null)
-            throw new Exception("TODO");
+            throw new Exception(errorMessage());
     }
     
     void attach(int pid)
     {
         process = adbg_debugger_attach(pid, 0);
         if (process == null)
-            throw new Exception("TODO");
+            throw new Exception(errorMessage());
     }
     
     void go()
@@ -39,10 +39,8 @@ class Alicedbg : IDebugger
 private:
     adbg_process_t *process;
     
-    /*
     string errorMessage()
     {
-        return fromStringz(adbg_error_message());
+        return cast(string)fromStringz(adbg_error_message());
     }
-    */
 }

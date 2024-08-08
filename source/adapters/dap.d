@@ -256,9 +256,6 @@ class DAPAdapter : Adapter
         case "disconnect":
             // If launched, close debuggee.
             // If attached, detach. Unless terminateDebuggee:true specified.
-            //
-            // Server should only understand closing, so send appropriate
-            // request type.
             request.type = RequestType.close;
             switch (processCreation) {
             case RequestType.attach:

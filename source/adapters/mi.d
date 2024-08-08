@@ -166,14 +166,18 @@ class MIAdapter : Adapter
             send(gdbString);
             goto Lread;
         }
-        AdapterRequest request;
         
         // Recognized requests
         string requestCommand = args[0];
         RequestType *req = requestCommand in requests;
         
         // Filter by recognized requests
+        AdapterRequest request;
         if (req) switch (*req) {
+        /*
+        case RequestType.launch:
+            return request;
+        */
         case RequestType.attach:
             if (args.length < 2)
             {
@@ -187,6 +191,7 @@ class MIAdapter : Adapter
                 reply(AdapterError(format("Illegal process-id: '%s'.", args[1])));
                 goto Lread;
             }
+            
             request.type = RequestType.attach;
             return request;
         case RequestType.currentWorkingDirectory:

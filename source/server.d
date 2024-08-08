@@ -9,11 +9,8 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-import config;
 import logging;
-import adapters;
-import transports;
-import debuggers;
+import adapters, debuggers;
 
 // NOTE: Structure
 //
@@ -26,6 +23,10 @@ import debuggers;
 //
 //       Child thread handle their own debugger instance.
 //       (TODO) Attach debugger ID to requests.
+//
+//       In general, the server understands close requests, but
+//       debuggers do not (their UI do, though). Debuggers only understand
+//       detach and terminate requests.
 
 debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
 else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
@@ -55,7 +56,7 @@ void startServer(Adapter adapter) // Handles adapter
     
     // Get requests
     logTrace("Listening...");
-    bool debuggerActive;
+    RequestType debuggerType;
     Tid debuggerTid;
     AdapterRequest request = void;
 Lrequest:
@@ -72,7 +73,7 @@ Lrequest:
     // Launch process with debugger
     case RequestType.launch:
         // TODO: Accept multi-session
-        if (debuggerActive)
+        if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));
             goto Lrequest;
@@ -89,12 +90,12 @@ Lrequest:
         }
         
         adapter.reply(AdapterReply());
-        debuggerActive = true;
+        debuggerType = RequestType.launch;
         break;
     // Attach debugger to process
     case RequestType.attach:
         // TODO: Accept multi-session
-        if (debuggerActive)
+        if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));
             goto Lrequest;
@@ -111,11 +112,11 @@ Lrequest:
         }
         
         adapter.reply(AdapterReply());
-        debuggerActive = true;
+        debuggerType = RequestType.attach;
         break;
     // Detach debugger from process
     case RequestType.detach:
-        if (debuggerActive == false) // Nothing to detach from
+        if (debuggerType == RequestType.unknown) // Nothing to detach from
         {
             adapter.reply(AdapterError(messageDebuggerUnactive));
             goto Lrequest;
@@ -131,11 +132,11 @@ Lrequest:
         }
         
         adapter.reply(AdapterReply());
-        debuggerActive = false;
+        debuggerType = RequestType.unknown;
         break;
     // Terminate process
     case RequestType.terminate:
-        if (debuggerActive == false) // Nothing to terminate
+        if (debuggerType == RequestType.unknown) // Nothing to terminate
         {
             adapter.reply(AdapterError(messageDebuggerUnactive));
             goto Lrequest;
@@ -151,22 +152,30 @@ Lrequest:
         }
         
         adapter.reply(AdapterReply());
-        debuggerActive = false;
+        debuggerType = RequestType.unknown;
         break;
     // Either detaches or terminates process depending how the debugger is attached
     case RequestType.close:
-        if (debuggerActive && request.closeOptions.action != CloseAction.nothing)
+        static immutable Duration quitTimeout = 10.seconds;
+        switch (debuggerType) {
+        case RequestType.launch: // if was launched
+            send(debuggerTid, RequestTerminate());
+            break;
+        case RequestType.attach: // if was attached
+            send(debuggerTid, RequestDetach());
+            break;
+        default:
+        }
+        
+        if (debuggerType)
         {
-            logTrace("Sending debugger termination signal...");
-            send(debuggerTid, RequestQuit());
-            
-            static immutable Duration quitTimeout = 5.seconds;
-            logTrace("Waiting for debugger to quit...");
+            logTrace("Waiting for debugger to quit (timeout: %s)...", quitTimeout);
             if (receiveTimeout(quitTimeout, (MsgReply reply) {}) == false)
-                logWarn("Debugger did not reply in %s, quitting anyway", quitTimeout);
+                logWarn("Debugger timeout, quitting anyway");
         }
         
         // TODO: Multi-session: Return to listen to requests if adapterCount > 0
+        //       And reset debuggerType.
         adapter.close();
         return;
     default:
@@ -193,7 +202,6 @@ struct MsgReply
 
 struct RequestDetach {}
 struct RequestTerminate {}
-struct RequestQuit {}
 
 //TODO: Add configuration settings (mainly breakpoints) before starting
 struct DebuggerStartOptions
@@ -279,18 +287,14 @@ void startDebugger(Tid parent, DebuggerStartOptions start) // Handles debugger
             }
             send(parent, MsgReply());
             */
-            send(parent, MsgReply());
             active = false;
         },
         (RequestTerminate req) {
             logTrace("Debugger: Terminating process...");
-            send(parent, MsgReply());
-            active = false;
-        },
-        (RequestQuit req) {
-            logTrace("Debugger: Closing debugger...");
-            send(parent, MsgReply());
             active = false;
         }
     );
+    
+    // Send terminating message
+    send(parent, MsgReply());
 }
