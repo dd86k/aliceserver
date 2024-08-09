@@ -14,19 +14,21 @@ import adapters, debuggers;
 
 // NOTE: Structure
 //
-//       The server can ultimately handle one adapter protocol, and
-//       if the adapter allows it, the server can handle multiple
-//       debugger sessions, often called "multi-session" servers.
+//       The server can ultimately handle one adapter protocol, and if the
+//       adapter allows it, the server can handle multiple debugger sessions,
+//       often called "multi-session" servers, at the request of the adapter.
+//
+//       In general, the server understands close requests, but debuggers do not
+//       (their UI do, though). Debuggers only understand detach and terminate
+//       requests.
+
+// NOTE: Threading
 //
 //       The main thread handles the adapter instance, and one or
 //       more threads are spun on new debugger session requests.
 //
 //       Child thread handle their own debugger instance.
 //       (TODO) Attach debugger ID to requests.
-//
-//       In general, the server understands close requests, but
-//       debuggers do not (their UI do, though). Debuggers only understand
-//       detach and terminate requests.
 
 debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
 else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
@@ -47,12 +49,27 @@ private
 {
     immutable string messageDebuggerActive   = "Debugger is already active";
     immutable string messageDebuggerUnactive = "Debugger is not active";
+    
+    __gshared string exec;
+    __gshared string[] execArgs;
 }
 
-/// Starts the initial server instance.
-void startServer(Adapter adapter) // Handles adapter
+// Executable path if given to server
+string serverExec()
+{
+    return exec;
+}
+
+/// Starts the initial server instance with extra arguments.
+void startServer(Adapter adapter, string[] args) // Handles adapter
 {
     assert(adapter);
+    
+    // MI needs the executable being saved in memory for `-exec-run`
+    if (args.length > 1)
+    {
+        exec = args[1];
+    }
     
     // Get requests
     logTrace("Listening...");

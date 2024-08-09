@@ -103,7 +103,7 @@ void main(string[] args)
     }
     
     // Run server
-    try startServer(adapter);
+    try startServer(adapter, args);
     catch (Exception ex)
     {
         debug logCritical("Unhandled Exception: %s", ex);

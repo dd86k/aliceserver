@@ -18,8 +18,12 @@ Why?
 
 ## DAP
 
-The [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
-is a protocol introduced in Visual Studio Code.
+[Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
+is a HTTP-like protocol using JSON that was introduced in
+[vscode-debugadapter-node](https://github.com/microsoft/vscode-debugadapter-node)
+and was readapted as a
+[standalone protocol](https://github.com/microsoft/debug-adapter-protocol)
+for debugging various processes and runtimes in Visual Studio Code.
 
 The protocol leaves a lot of nuance regarding implementation
 details, which can be a little infuriating to work with.
@@ -28,24 +32,30 @@ This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
 double-precision floating-point number (`double`, IEEE 754).
 
-DAP is capable of initiating multiple debugging sessions.
+DAP is capable of initiating multiple debugging sessions, also known as a
+multi-session configuration
 
 Aliceserver does not yet support multi-session.
 
 ### Connection Details
 
-By default, single-session mode is used, where standard streams are used
-to communicate with the client (tool).
+By default, single-session mode is used. A client may request to initiate a new
+debugging session by emiting the `startDebugging` request, which turns the server
+configuration into a multi-session mode.
 
-Messages are encoded in JSON using an HTTP-like wrapper.
+In either modes, the client spawns the server and uses the standard streams (stdio)
+to communicate with the server.
 
-In single-session mode, the server starts by reading a line from the program's
-_standard input stream_ ("stdin") by reading characters until a newline is
-seen, then reads an empty line.
+Messages are encoded as HTTP messages using JSON for its body, where the header and body
+of the message are separated by two HTTP newlines ("\r\n").
 
-This is used to get the (currently only) HTTP-like header field, `Content-Length`,
-describing the size of the HTTP body. Then, the server reads N amount of bytes
-described by the `Content-Length` field as an Integer.
+Currently, there is only one header field, `Content-Length`, that determines the
+length of the message. This includes requests, replies, and events. This field is
+read as an Integer (32-bit integer number, `int`).
+
+This is important since streams are of inderminate sizes, unlike TCP packets.
+
+The body of the message is encoded using [JSON](https://json.org).
 
 A typical request may look like this:
 
@@ -66,7 +76,7 @@ Content-Length: 81\r\n
 Both client and server maintain their own sequence number, starting at 1.
 
 NOTE: lldb-vscode starts their seq number at 0, while not as per specification,
-it poses no changes to its usage.
+it poses no difference to its usage.
 
 Multi-session mode is not currently supported.
 
@@ -148,8 +158,8 @@ Command support:
   
 ## MI
 
-The [Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
-protocol is a line-oriented protocol introduced in GDB.
+[Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
+is a line-oriented protocol introduced in GDB 5.1.
 
 To my knowledge, MI is not capable of multi-session.
 
@@ -158,11 +168,10 @@ To my knowledge, MI is not capable of multi-session.
 In a typical setting, MI uses the standard streams to communicate with the child
 process.
 
-Once the server starts running, it may already emiting log streams,
-until `(gdb)\n` is printed, indicating that the server is ready to receive
-commands.
+Once the server starts running, it may already emit console streams, until
+`(gdb)\n` is printed, indicating that the server is ready to receive commands.
 
-Commands are roughly the same as you would use on GDB:
+Commands are almost the same as you would use on GDB:
 
 ```text
 attach 12345\n
@@ -174,7 +183,7 @@ Replies to commands start with a `^` character:
 ^done\n
 ```
 
-Or on error (note: `\\n` and `\\"` denote c-string formatting as-is):
+Or on error (note: `\\n` and `\\"` denote c-string formatting):
 
 ```text
 ^error,msg="Example text.\\n\\nValue: \\"Test\\""\n
@@ -191,20 +200,25 @@ using c-string formatting.
 | Exec | `*` | Async execution state changed. |
 | Notify | `=` | Async notification related to the debugger. |
 | Status | `+` | Async status change. |
-| Console Stream | `~` | Console output. |
-| Target Stream | `@` | |
-| Log Stream | `&` | Typically for repeating commands as interpreted by the server. |
+| Console Stream | `~` | Console informational message from debugger. |
+| Target Stream | `@` | Program output. |
+| Log Stream | `&` | Server repeated command for logging purposes. |
 
 Some commands may start with `-`.
 
 ### Supported Requests
 
-NOTE: LLDB command variants currently not supported.
+NOTE: Command focus is on GDB, lldb-mi commands may work.
 
 | Request | Commands | Supported? | Comments |
 |---|---|---|---|
 | Attach | `attach` | ✔️ | |
-| Launch | `exec-run` | ❌ | |
+| Launch | `-exec-run`, `target exec`, `-exec-arguments` | ✔️ | |
+| Continue | `-exec-continue` | ✔️ | |
+| Terminate | `-exec-abort` | ✔️ | |
+| Detach | `-exec-detach`, `detach` | ✔️ | |
+| Set working directory | `environment-directory` | ✔️ | |
+| Disconnect | `q`, `quit`, `-gdb-exit` | ✔️ | |
 
 ### Supported Events
 

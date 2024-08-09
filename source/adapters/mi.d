@@ -15,12 +15,14 @@ import adapters.base;
 import transports.base : ITransport;
 import logging;
 import config;
-import core.vararg;
-import std.conv;
-import std.format;
+import server : serverExec;
+import std.conv : to;
+import std.format : format;
 import std.file : chdir;
 import std.array : replace, split;
 import std.ascii : isWhite;
+
+// TODO: Function to separate shell-like arguments (with quotes)
 
 // NOTE: GDB/MI versions
 //
@@ -85,16 +87,16 @@ enum MIType : char
     command = '-',
 }
 
-enum MIVariant { gdb }
-
 private immutable string gdbString = "(gdb)\n";
 private immutable string doneMsg = "^done\n";
 
+/*
 private
 string parseCString(string cstr)
 {
     return "";
 }
+*/
 
 private
 string formatCString(A...)(string fmt, A args)
@@ -108,42 +110,14 @@ unittest
     assert(formatCString("Thing: \"hi\"\n") == `Thing: \"hi\"\n`);
 }
 
-
 class MIAdapter : Adapter
 {
     // TODO: version parameter
-    this(ITransport t, MIVariant mivariant = MIVariant.gdb, int miversion = 1)
+    this(ITransport t, int version_ = 1)
     {
         super(t);
         
-        variant  = mivariant;
-        version_ = miversion;
-        
-        final switch (mivariant) {
-        case MIVariant.gdb:
-            requests["q"] = RequestType.close;
-            requests["quit"] = RequestType.close;
-            requests["-gdb-exit"] = RequestType.close;
-            requests["-gdb-detach"] = RequestType.detach;
-            requests["attach"] = RequestType.attach;
-            requests["exec-run"] = RequestType.go;
-            requests["exec-continue"] = RequestType.go;
-            //requests["exec-interrupt"] = RequestType.pause;
-            //requests["exec-next"] = RequestType.go; // [--reverse]
-            //requests["exec-step"] = RequestType.instructionStep; // [--reverse]
-            //requests["exec-finish"] = RequestType.instructionStepOut; // [--reverse]
-            //requests["break-insert"] = RequestType.breakFunction; // -f FUNCTION
-            //requests["break-condition"] = RequestType.breakCondition; // num condition
-            //requests["file-exec-and-symbols"] = RequestType.;
-            requests["environment-directory"] = RequestType.currentWorkingDirectory;
-            // goto:
-            //   break-insert -t TARGET
-            //   exec-jump TARGET
-            //requests["goto"] = RequestType.instructionStepOut;
-            // change variable: gdb-set var REGISTER = VALUE
-            //requests["gdb-set"] = RequestType.instructionStepOut;
-            break;
-        }
+        miversion = version_;
         
         send(gdbString); // Ready!
     }
@@ -169,16 +143,51 @@ class MIAdapter : Adapter
         
         // Recognized requests
         string requestCommand = args[0];
-        RequestType *req = requestCommand in requests;
+        
+        // TODO: These commands
+        //       - -exec-finish: functionOut
+        //       - -exec-next: nextLine
+        //       - -exec-interrupt: pause
+        //       - -exec-step: instructionStep
+        //       - -exec-finish: instructionStepOut
+        //       - break-insert: insert breakpoint
+        //       - break-condition: change condition to breakpoint
+        //       - file-exec-and-symbols: set exec and symbols
+        //       - goto: break-insert -t TARGET or exec-jump TARGET
         
         // Filter by recognized requests
         AdapterRequest request;
-        if (req) switch (*req) {
-        /*
-        case RequestType.launch:
+        switch (requestCommand) {
+        case "-exec-run":
+            request.type = RequestType.launch;
+            
+            // If we saved the exec target
+            if (exec)
+            {
+                request.launchOptions.path = exec;
+                return request;
+            }
+            
+            // If server got exec specified earlier
+            string exec2 = serverExec();
+            if (exec2)
+            {
+                request.launchOptions.path = exec2;
+                return request;
+            }
+            
+            reply(AdapterError("No executable to run."));
+            goto Lread;
+        case "-exec-continue":
+            request.type = RequestType.go;
             return request;
-        */
-        case RequestType.attach:
+        case "-exec-abort":
+            request.type = RequestType.terminate;
+            return request;
+        case "-gdb-detach", "detach":
+            request.type = RequestType.detach;
+            return request;
+        case "attach":
             if (args.length < 2)
             {
                 reply(AdapterError("Missing process-id argument."));
@@ -194,7 +203,7 @@ class MIAdapter : Adapter
             
             request.type = RequestType.attach;
             return request;
-        case RequestType.currentWorkingDirectory:
+        case "environment-directory":
             if (args.length < 2)
             {
                 reply(AdapterError("Missing process-id argument."));
@@ -205,17 +214,37 @@ class MIAdapter : Adapter
             chdir(dir);
             reply(AdapterReply());
             goto Lread;
-        case RequestType.close:
-            request.type = RequestType.close;
-            return request;
-        default: // Not an official request, likely more GDB related
-        }
+        case "target":
+            if (args.length < 2)
+            {
+                reply(AdapterError("Need target type"));
+                goto Lread;
+            }
+            
+            string targetType = args[1];
+            switch (targetType) {
+            case "exec":
+                if (args.length < 3)
+                {
+                    reply(AdapterError("Need target executable path"));
+                    goto Lread;
+                }
+                
+                exec = args[2].dup;
+                reply(AdapterReply());
+                goto Lread;
+            default:
+                reply(AdapterError(format("Invalid target type: %s", targetType)));
+            }
+            goto Lread;
+        case "-exec-arguments":
+            // If arguments given, set, otherwise, clear.
+            execArguments = args.length >= 1 ? args[1..$].dup : null;
+            reply(AdapterReply());
+            goto Lread;
+        // TODO: print exec arguments
+        //case "-exec-show-arguments":
         
-        // Filter by specific GDB or LLDB command
-        switch (requestCommand) {
-        case "exec-arguments":
-            // TODO: Save arguments
-            break;
         //case "mi-async": // TODO: mi-async
         case "show":
             // NOTE: "show" alone makes GDB show everything
@@ -239,6 +268,9 @@ class MIAdapter : Adapter
             
             reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
             break;
+        case "q", "quit", "-gdb-exit":
+            request.type = RequestType.close;
+            return request;
         // Ignore list
         case "gdb-set", "inferior-tty-set": goto Lread;
         default:
@@ -275,6 +307,11 @@ class MIAdapter : Adapter
         //   args=[{name="argc",value="1"},{name="argv",value="0xbfc4d4d4"}],
         //   file="myprog.c",fullname="/home/nickrob/myprog.c",line="68",
         //   arch="i386:x86_64"}
+        // - *stopped,reason="exited",exit-code="01"
+        // - *stopped,reason="exited-signalled",signal-name="SIGINT",
+        //   signal-meaning="Interrupt"
+        // - @Hello world!
+        // - ~"Message from debugger\n"
         switch (msg.type) with (EventType) {
         /*case output:
             send(format("~\"%s\"\n", formatCString( msg. )));
@@ -297,7 +334,8 @@ class MIAdapter : Adapter
     }
     
 private:
-    MIVariant variant;
-    int version_;
-    RequestType[string] requests;
+    int miversion;
+    
+    string exec;
+    string[] execArguments;
 }
