@@ -6,9 +6,9 @@
 module adapters.base;
 
 import transports.base;
-import logging;
 import core.thread : Thread;
 import std.datetime : Duration, dur;
+import ddlogger;
 
 enum RequestType
 {

@@ -9,8 +9,8 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-import logging;
 import adapters, debuggers;
+import ddlogger;
 
 // NOTE: Structure
 //

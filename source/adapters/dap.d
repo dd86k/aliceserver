@@ -11,8 +11,8 @@ import std.conv : text;
 import std.utf : validate;
 import adapters.base;
 import transports.base : ITransport;
-import logging;
 import utils.json;
+import ddlogger;
 
 // References:
 // - https://microsoft.github.io/debug-adapter-protocol/
