@@ -11,16 +11,15 @@
 /// License: BSD-3-Clause-Clear
 module adapters.mi;
 
-import adapters.base;
-import transports.base : ITransport;
-import logging;
-import config;
-import server : serverExec;
 import std.conv : to;
 import std.format : format;
 import std.file : chdir;
-import std.array : replace, split;
-import std.ascii : isWhite;
+import std.array : replace;
+import logging;
+import config;
+import utils.shell : shellArgs;
+import adapters.base;
+import server : targetExec;
 
 // TODO: Function to separate shell-like arguments (with quotes)
 
@@ -133,7 +132,7 @@ class MIAdapter : Adapter
         send(format(`&"%s"`~"\n", formatCString( fullrequest )));
         
         // Get arguments
-        string[] args = fullrequest.split!isWhite;
+        string[] args = shellArgs( fullrequest );
         if (args.length == 0)
         {
             send(doneMsg);
@@ -155,6 +154,7 @@ class MIAdapter : Adapter
         //       - file-exec-and-symbols: set exec and symbols
         //       - goto: break-insert -t TARGET or exec-jump TARGET
         
+        // Command list: gdb/mi/mi-cmds.c
         // Filter by recognized requests
         AdapterRequest request;
         switch (requestCommand) {
@@ -169,7 +169,7 @@ class MIAdapter : Adapter
             }
             
             // If server got exec specified earlier
-            string exec2 = serverExec();
+            string exec2 = targetExec();
             if (exec2)
             {
                 request.launchOptions.path = exec2;

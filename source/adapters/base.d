@@ -5,7 +5,7 @@
 /// License: BSD-3-Clause-Clear
 module adapters.base;
 
-import transports.base;
+public import transports.base : ITransport;
 import core.thread : Thread;
 import std.datetime : Duration, dur;
 import ddlogger;

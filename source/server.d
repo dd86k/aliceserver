@@ -54,8 +54,9 @@ private
     __gshared string[] execArgs;
 }
 
-// Executable path if given to server
-string serverExec()
+/// Get currently set target executable path.
+/// Returns: Path string.
+string targetExec()
 {
     return exec;
 }
@@ -70,6 +71,8 @@ void startServer(Adapter adapter, string[] args) // Handles adapter
     {
         exec = args[1];
     }
+    
+    // TODO: startup arguments
     
     // Get requests
     logTrace("Listening...");
