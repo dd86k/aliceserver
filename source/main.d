@@ -12,6 +12,15 @@ import config, server, logging;
 import adapters, debuggers, transports;
 import adbg.platform : ADBG_VERSION;
 
+template VER(uint ver)
+{
+    enum VER =
+        cast(char)((ver / 1000) + '0') ~ "." ~
+        cast(char)(((ver % 1000) / 100) + '0') ~
+        cast(char)(((ver % 100) / 10) + '0') ~
+        cast(char)((ver % 10) + '0');
+}
+
 void cliListAdapters()
 {
     writeln("Adapters:");
@@ -53,7 +62,8 @@ void main(string[] args)
         "version",  `Show version page and quit`, {
             write(
             "aliceserver ", PROJECT_VERSION, "\n",
-            "            Built ", __TIMESTAMP__, "\n",
+            "            Built: ", __TIMESTAMP__, "\n",
+            "            Compiler: ", __VENDOR__, " ", VER!__VERSION__, "\n",
             "            ", PROJECT_COPYRIGHT, "\n",
             "            ", PROJECT_LICENSE, "\n",
             "alicedbg    ", ADBG_VERSION, "\n",
@@ -97,8 +107,9 @@ void main(string[] args)
     case dap:
         adapter = new DAPAdapter(new HTTPStdioTransport());
         break;
-    case mi:
-        adapter = new MIAdapter(new StdioTransport());
+    case mi, mi2, mi3, mi4:
+        int miversion = osettings.adapterType - mi;
+        adapter = new MIAdapter(new StdioTransport(), miversion);
         break;
     }
     
