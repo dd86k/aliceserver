@@ -237,6 +237,17 @@ class MIAdapter : Adapter
                 reply(AdapterError(format("Invalid target type: %s", targetType)));
             }
             goto Lread;
+        // (gdb, lldb) Set target path and symbols as the same
+        // file-exec-and-symbols PATH
+        case "file-exec-and-symbols":
+            if (args.length < 2)
+            {
+                reply(AdapterError("Need target executable path"));
+                goto Lread;
+            }
+            
+            exec = args[1].dup;
+            goto Lread;
         case "-exec-arguments":
             // If arguments given, set, otherwise, clear.
             execArguments = args.length >= 1 ? args[1..$].dup : null;
