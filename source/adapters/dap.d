@@ -61,79 +61,6 @@ private enum PathFormat { path, uri }
 //TODO: Consider update seq atomically
 class DAPAdapter : Adapter
 {
-    int current_seq = 1;
-    int request_seq;
-    RequestType processCreation;
-    
-    struct ClientCapabilities
-    {
-        string adapterId;
-        string id;
-        string name;
-        /// ISO-639
-        string locale;
-        /// 'path' or 'uri'
-        PathFormat pathFormat;
-        
-        //TODO: Issue with linesStartAt1/columnsStartAt1: They default to one
-        Capability[] capabilities = [
-            { "linesStartAt1" },
-            { "columnsStartAt1" },
-            { "supportsVariableType" },
-            { "supportsVariablePaging" },
-            { "supportsRunInTerminalRequest" },
-            { "supportsMemoryReferences" },
-            { "supportsProgressReporting" },
-            { "supportsInvalidatedEvent" },
-            { "supportsMemoryEvent" },
-            { "supportsArgsCanBeInterpretedByShell" },
-            { "supportsStartDebuggingRequest" },
-        ];
-    }
-    ClientCapabilities client;
-    
-    // NOTE: Set to true when server supports 
-    struct ServerCapabilities
-    {
-        Capability[] capabilities = [
-            { "supportsConfigurationDoneRequest" },
-            { "supportsFunctionBreakpoints" },
-            { "supportsConditionalBreakpoints" },
-            { "supportsHitConditionalBreakpoints" },
-            { "supportsEvaluateForHovers" },
-            { "supportsStepBack" },
-            { "supportsSetVariable" },
-            { "supportsRestartFrame" },
-            { "supportsGotoTargetsRequest" },
-            { "supportsStepInTargetsRequest" },
-            { "supportsCompletionsRequest" },
-            { "supportsModulesRequest" },
-            { "supportsExceptionOptions" },
-            { "supportsValueFormattingOptions" },
-            { "supportsExceptionInfoRequest" },
-            { "supportTerminateDebuggee" },
-            { "supportSuspendDebuggee" },
-            { "supportsDelayedStackTraceLoading" },
-            { "supportsLoadedSourcesRequest" },
-            { "supportsLogPoints" },
-            { "supportsTerminateThreadsRequest" },
-            { "supportsSetExpression" },
-            { "supportsTerminateRequest" },
-            { "supportsDataBreakpoints" },
-            { "supportsReadMemoryRequest" },
-            { "supportsWriteMemoryRequest" },
-            { "supportsDisassembleRequest" },
-            { "supportsCancelRequest" },
-            { "supportsBreakpointLocationsRequest" },
-            { "supportsClipboardContext" },
-            { "supportsSteppingGranularity" },
-            { "supportsInstructionBreakpoints" },
-            { "supportsExceptionFilterOptions" },
-            { "supportsSingleThreadExecutionRequests" },
-        ];
-    }
-    ServerCapabilities server;
-    
     this(ITransport t)
     {
         super(t);
@@ -349,7 +276,6 @@ class DAPAdapter : Adapter
         JSONValue j;
         j["seq"] = current_seq++;
         
-        //TODO: Final switch
         switch (event.type) with (EventType) {
         case output:
             j["event"] = "output";
@@ -382,4 +308,78 @@ class DAPAdapter : Adapter
     {
         super.send(json.toString());
     }
+    
+private:
+    int current_seq = 1;
+    int request_seq;
+    RequestType processCreation;
+    
+    struct ClientCapabilities
+    {
+        string adapterId;
+        string id;
+        string name;
+        /// ISO-639
+        string locale;
+        /// 'path' or 'uri'
+        PathFormat pathFormat;
+        
+        //TODO: Issue with linesStartAt1/columnsStartAt1: They default to one
+        Capability[] capabilities = [
+            { "linesStartAt1" },
+            { "columnsStartAt1" },
+            { "supportsVariableType" },
+            { "supportsVariablePaging" },
+            { "supportsRunInTerminalRequest" },
+            { "supportsMemoryReferences" },
+            { "supportsProgressReporting" },
+            { "supportsInvalidatedEvent" },
+            { "supportsMemoryEvent" },
+            { "supportsArgsCanBeInterpretedByShell" },
+            { "supportsStartDebuggingRequest" },
+        ];
+    }
+    ClientCapabilities client;
+    
+    // NOTE: Set to true when server supports 
+    struct ServerCapabilities
+    {
+        Capability[] capabilities = [
+            { "supportsConfigurationDoneRequest" },
+            { "supportsFunctionBreakpoints" },
+            { "supportsConditionalBreakpoints" },
+            { "supportsHitConditionalBreakpoints" },
+            { "supportsEvaluateForHovers" },
+            { "supportsStepBack" },
+            { "supportsSetVariable" },
+            { "supportsRestartFrame" },
+            { "supportsGotoTargetsRequest" },
+            { "supportsStepInTargetsRequest" },
+            { "supportsCompletionsRequest" },
+            { "supportsModulesRequest" },
+            { "supportsExceptionOptions" },
+            { "supportsValueFormattingOptions" },
+            { "supportsExceptionInfoRequest" },
+            { "supportTerminateDebuggee" },
+            { "supportSuspendDebuggee" },
+            { "supportsDelayedStackTraceLoading" },
+            { "supportsLoadedSourcesRequest" },
+            { "supportsLogPoints" },
+            { "supportsTerminateThreadsRequest" },
+            { "supportsSetExpression" },
+            { "supportsTerminateRequest" },
+            { "supportsDataBreakpoints" },
+            { "supportsReadMemoryRequest" },
+            { "supportsWriteMemoryRequest" },
+            { "supportsDisassembleRequest" },
+            { "supportsCancelRequest" },
+            { "supportsBreakpointLocationsRequest" },
+            { "supportsClipboardContext" },
+            { "supportsSteppingGranularity" },
+            { "supportsInstructionBreakpoints" },
+            { "supportsExceptionFilterOptions" },
+            { "supportsSingleThreadExecutionRequests" },
+        ];
+    }
+    ServerCapabilities server;
 }

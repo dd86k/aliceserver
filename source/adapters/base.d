@@ -10,6 +10,18 @@ import core.thread : Thread;
 import std.datetime : Duration, dur;
 import ddlogger;
 
+// NOTE: Rationale for structure messaging
+//
+//       Structures are used for messaging between the server and the client internally.
+//
+//       They allow to:
+//       - Be used in message passing concurrency.
+//       - Add additional details when necessary.
+
+//
+// Request types
+//
+
 enum RequestType
 {
     unknown,
@@ -21,7 +33,7 @@ enum RequestType
     /// Attach debugger to process
     attach,
     
-    /// Set current working directory
+    /// Set current working directory of debugger.
     currentWorkingDirectory,
     
     /// Continue
@@ -34,44 +46,6 @@ enum RequestType
     
     /// Close debugger and closes debuggee if running.
     close,
-}
-
-enum EventType
-{
-    /// When a breakpoint's state changes (modified, removed, etc.).
-    breakpoint,
-    /// When debugger's list of capabilities change, usually after startup.
-    capabilities,
-    /// Debuggee/tracee has resumed execution.
-    continued,
-    /// Debuggee/tracee has exited.
-    exited,
-    /// Debugger server is ready to accept configuration requests.
-    initialized,
-    /// Debugger server state changed (e.g., setting) and client needs to refresh.
-    invalidated,
-    /// Source file added, changed, or removed, from loaded sources.
-    loadedSource,
-    /// Memory range has received an update.
-    memory,
-    /// Module was (loaded, changed, removed).
-    module_,
-    /// Debuggee process message.
-    output,
-    /// A sub-process was spawned, or removed.
-    process,
-    /// 
-    progressEnd,
-    /// 
-    progressStart,
-    /// 
-    progressUpdate,
-    /// The debuggee stopped.
-    stopped,
-    /// The debuggee was terminated.
-    terminated,
-    /// Thread event.
-    thread,
 }
 
 // Stuff like if lines starts at 1, etc.
@@ -116,14 +90,64 @@ struct AdapterRequest
     }
 }
 
+//
+// Reply types
+//
+
+/// Used to reply that the command was successfully executed
+/// by the server.
 struct AdapterReply
 {
-    RequestType type;
-    
-    union
-    {
-        
-    }
+    RequestType type; // Initial request
+}
+
+/// Used to reply an error back to the client, that the request
+/// has failed.
+struct AdapterError
+{
+    string message;
+}
+
+//
+// Event types
+//
+
+enum EventType
+{
+    /// When a breakpoint's state changes (modified, removed, etc.).
+    breakpoint,
+    /// When debugger's list of capabilities change, usually after startup.
+    capabilities,
+    /// Debuggee/tracee has resumed execution.
+    continued,
+    /// Debuggee/tracee has exited.
+    exited,
+    /// Debugger server is ready to accept configuration requests.
+    initialized,
+    /// Debugger server state changed (e.g., setting) and client needs to refresh.
+    invalidated,
+    /// Source file added, changed, or removed, from loaded sources.
+    loadedSource,
+    /// Memory range has received an update.
+    memory,
+    /// Module was (loaded, changed, removed).
+    module_,
+    /// Debuggee process message.
+    output,
+    /// A sub-process was spawned, or removed.
+    process,
+    /// 
+    progressEnd,
+    /// 
+    progressStart,
+    /// 
+    progressUpdate,
+    /// The debuggee stopped.
+    stopped,
+    /// The debuggee was terminated.
+    terminated,
+    /// Thread event.
+    thread,
 }
 
 struct AdapterEvent
@@ -136,12 +160,9 @@ struct AdapterEvent
     }
 }
 
-struct AdapterError
-{
-    string message;
-}
-
-// Base Adapter class to 
+/// Abstract Adapter class used to interface a protocol.
+///
+/// This class alone is incapable to interface with the server.
 abstract class Adapter
 {
     this(ITransport t)

@@ -17,13 +17,14 @@ import std.file : chdir;
 import std.array : replace;
 import logging;
 import config;
+import server : AdapterType, targetExec, targetExecArgs;
 import utils.shell : shellArgs;
 import adapters.base;
-import server : targetExec;
-
-// TODO: Function to separate shell-like arguments (with quotes)
 
 // NOTE: GDB/MI versions
+//
+//       Handling version variants is currently a work in progress. But right now,
+//       has no significant of its own.
 //
 //       MI   GDB  Breaking changes
 //        1   5.1
@@ -56,18 +57,18 @@ import server : targetExec;
 
 // NOTE: code-debug
 //
-//     Launching GDB
-//       On Win32 platforms:
-//         - `file-exec-and-symbols` for file path and symbols (?)
-//         - if separateConsole is defined: `gdb-set new-console on`.
-//         - `exec-run` (+ `--start`)
+//       Launching GDB
+//         On Win32 platforms:
+//           - `file-exec-and-symbols` for file path and symbols (?)
+//           - if separateConsole is defined: `gdb-set new-console on`.
+//           - `exec-run` (+ `--start`)
 //
 //       On Linux, if separateConsole is defined, `inferior-tty-set TTY` is executed.
-//       
 
 enum MIType : char
 {
     // Replies
+    // "running" (exec running), "done" (task performed successfully),
     result = '^',
     
     // Events (Async record types)
@@ -76,7 +77,6 @@ enum MIType : char
     asyncStatus = '+', // async status: "stopped" or other message
     
     // Stream record (informative)
-    // "running" (exec running), "done" (task performed successfully),
     // "exit" (quit), "error" (task failed), "connected" (?),
     console = '~', // terminal output
     targetStream = '@', // 
@@ -86,8 +86,9 @@ enum MIType : char
     command = '-',
 }
 
-private immutable string gdbString = "(gdb)\n";
-private immutable string doneMsg = "^done\n";
+private immutable string gdbPrompt = "(gdb)\n";
+private immutable string msgDone = "^done\n";
+private immutable string msgRunning = "^running\n";
 
 /*
 private
@@ -111,14 +112,15 @@ unittest
 
 class MIAdapter : Adapter
 {
-    // TODO: version parameter
     this(ITransport t, int version_ = 1)
     {
         super(t);
         
+        if (version_ < 1 || version_ > 4)
+            throw new Exception("Wrong MI version specified");
         miversion = version_;
         
-        send(gdbString); // Ready!
+        send(gdbPrompt); // Ready!
     }
     
     override
@@ -135,20 +137,22 @@ class MIAdapter : Adapter
         string[] args = shellArgs( fullrequest );
         if (args.length == 0)
         {
-            send(doneMsg);
-            send(gdbString);
+            send(msgDone);
+            send(gdbPrompt);
             goto Lread;
         }
         
         // Recognized requests
         string requestCommand = args[0];
         
-        // TODO: These commands
+        // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
         //       - -exec-interrupt: pause
         //       - -exec-step: instructionStep
-        //       - -exec-finish: instructionStepOut
+        //       - -exec-continue: continue
+        //       - -exec-interrupt [--all|--thread-group N]: pause
+        //       - -exec-jump LOCSPEC: continue example.c:10
         //       - break-insert: insert breakpoint
         //       - break-condition: change condition to breakpoint
         //       - file-exec-and-symbols: set exec and symbols
@@ -158,21 +162,19 @@ class MIAdapter : Adapter
         // Filter by recognized requests
         AdapterRequest request;
         switch (requestCommand) {
+        // -exec-run [ --all | --thread-group N ] [ --start ]
+        // Start execution of target process.
+        //   --all: Start all target subprocesses
+        //   --thread-group: Start only thread group (of type process) for target process
+        //   --start: Stop at target's main function.
         case "-exec-run":
             request.type = RequestType.launch;
             
             // If we saved the exec target
+            string exec = targetExec();
             if (exec)
             {
                 request.launchOptions.path = exec;
-                return request;
-            }
-            
-            // If server got exec specified earlier
-            string exec2 = targetExec();
-            if (exec2)
-            {
-                request.launchOptions.path = exec2;
                 return request;
             }
             
@@ -203,17 +205,6 @@ class MIAdapter : Adapter
             
             request.type = RequestType.attach;
             return request;
-        case "environment-directory":
-            if (args.length < 2)
-            {
-                reply(AdapterError("Missing process-id argument."));
-                goto Lread;
-            }
-            
-            string dir = args[1];
-            chdir(dir);
-            reply(AdapterReply());
-            goto Lread;
         case "target":
             if (args.length < 2)
             {
@@ -230,7 +221,7 @@ class MIAdapter : Adapter
                     goto Lread;
                 }
                 
-                exec = args[2].dup;
+                targetExec( args[2].dup );
                 reply(AdapterReply());
                 goto Lread;
             default:
@@ -246,11 +237,33 @@ class MIAdapter : Adapter
                 goto Lread;
             }
             
-            exec = args[1].dup;
+            targetExec( args[1].dup );
+            reply(AdapterReply());
             goto Lread;
+        // -exec-arguments ARGS
+        // Set target arguments.
         case "-exec-arguments":
             // If arguments given, set, otherwise, clear.
-            execArguments = args.length >= 1 ? args[1..$].dup : null;
+            targetExecArgs(args.length >= 1 ? args[1..$].dup : null);
+            reply(AdapterReply());
+            goto Lread;
+        // -environment-cd PATH
+        // Set debugger directory.
+        case "-environment-cd":
+            if (args.length < 2)
+            {
+                reply(AdapterError("Missing PATH directory."));
+                goto Lread;
+            }
+            
+            // NOTE: Ultimately, the server should be the one controlling cwd
+            try chdir(args[1]);
+            catch (Exception ex)
+            {
+                reply(AdapterError(ex.msg));
+                goto Lread;
+            }
+            
             reply(AdapterReply());
             goto Lread;
         // TODO: print exec arguments
@@ -271,8 +284,8 @@ class MIAdapter : Adapter
             case "version":
                 static immutable string APPVERSION = "Aliceserver "~PROJECT_VERSION~"\n";
                 send(APPVERSION);
-                send(doneMsg);
-                send(gdbString);
+                send(msgDone);
+                send(gdbPrompt);
                 goto Lread;
             default:
             }
@@ -295,8 +308,14 @@ class MIAdapter : Adapter
     override
     void reply(AdapterReply msg)
     {
-        send(doneMsg);
-        send(gdbString);
+        switch (msg.type) {
+        case RequestType.launch:
+            send("^running");
+            break;
+        default:
+            send(msgDone); // "^done\n"
+        }
+        send(gdbPrompt);
     }
     
     override
@@ -305,7 +324,7 @@ class MIAdapter : Adapter
         logError(msg.message);
         // Example: ^error,msg="Undefined command: \"%s\"."
         send(format("^error,msg=\"%s\"\n", formatCString( msg.message )));
-        send(gdbString);
+        send(gdbPrompt);
     }
     
     override
@@ -346,7 +365,22 @@ class MIAdapter : Adapter
     
 private:
     int miversion;
-    
-    string exec;
-    string[] execArguments;
+}
+
+// Check MI version out of adapter type
+int miVersion(AdapterType adp)
+{
+    if (adp < AdapterType.mi || adp > AdapterType.mi4)
+        return 0;
+    return adp - AdapterType.mi;
+}
+unittest
+{
+    // Valid MI versions
+    assert(miVersion(AdapterType.mi)  == 1);
+    assert(miVersion(AdapterType.mi2) == 2);
+    assert(miVersion(AdapterType.mi3) == 3);
+    assert(miVersion(AdapterType.mi4) == 4);
+    // Invalid MI verisons
+    assert(miVersion(AdapterType.dap) == 0);
 }
