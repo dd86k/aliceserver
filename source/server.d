@@ -12,6 +12,11 @@ import core.thread;
 import adapters, debuggers;
 import ddlogger;
 
+// TODO: Accept multi-session
+//
+//       This could be a request type, or server simply launching new ones with
+//       matching sequence IDs (as DAP goes).
+
 // NOTE: Structure
 //
 //       The server can ultimately handle one adapter protocol, and if the
@@ -34,7 +39,7 @@ debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
 else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
 
 /// Adapter type.
-enum AdapterType { dap, mi }
+enum AdapterType { dap, mi, mi2, mi3, mi4 }
 
 /// Server settings.
 struct ServerSettings
@@ -50,32 +55,43 @@ private
     immutable string messageDebuggerActive   = "Debugger is already active";
     immutable string messageDebuggerUnactive = "Debugger is not active";
     
-    __gshared string exec;
-    __gshared string[] execArgs;
+    struct Target
+    {
+        string   exec;
+        string[] args;
+    }
+    __gshared Target target;
 }
 
 /// Get currently set target executable path.
 /// Returns: Path string.
 string targetExec()
 {
-    return exec;
+    return target.exec;
+}
+/// Set target executable path.
+/// Params: path = Path string.
+void targetExec(string path)
+{
+    target.exec = path;
 }
 
-/// Starts the initial server instance with extra arguments.
-void startServer(Adapter adapter, string[] args) // Handles adapter
+/// Set target arguments
+/// Params: args = Arguments.
+void targetExecArgs(string[] args)
 {
-    assert(adapter);
-    
-    // MI needs the executable being saved in memory for `-exec-run`
-    if (args.length > 1)
-    {
-        exec = args[1];
-    }
-    
-    // TODO: startup arguments
+    target.args = args;
+}
+
+/// Starts the initial server instance.
+///
+/// Adapters and main command-line interface can set target parameters.
+void startServer(Adapter adapter) // Handles adapter
+{
+    assert(adapter, "No adapter set before calling function");
     
     // Get requests
-    logTrace("Listening...");
+    logTrace("Listening..."); // TODO: Add adapter and transport names into log
     RequestType debuggerType;
     Tid debuggerTid;
     AdapterRequest request = void;
@@ -92,7 +108,6 @@ Lrequest:
     switch (request.type) {
     // Launch process with debugger
     case RequestType.launch:
-        // TODO: Accept multi-session
         if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));
@@ -114,7 +129,6 @@ Lrequest:
         break;
     // Attach debugger to process
     case RequestType.attach:
-        // TODO: Accept multi-session
         if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));

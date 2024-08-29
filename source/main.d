@@ -24,8 +24,8 @@ template VER(uint ver)
 void cliListAdapters()
 {
     writeln("Adapters:");
-    writeln("dap .... (default) Debug Adapter Protocol");
-    writeln("mi ..... GDB/MI (GDB Machine Interface)");
+    writeln("dap ....... (default) Debug Adapter Protocol");
+    writeln("mi ........ GDB/MI (GDB Machine Interface) version 1");
     exit(0);
 }
 
@@ -108,13 +108,23 @@ void main(string[] args)
         adapter = new DAPAdapter(new HTTPStdioTransport());
         break;
     case mi, mi2, mi3, mi4:
-        int miversion = osettings.adapterType - mi;
-        adapter = new MIAdapter(new StdioTransport(), miversion);
+        adapter = new MIAdapter(new StdioTransport(), miVersion(osettings.adapterType));
         break;
     }
     
+    // Extra parameters for Aliceserver right now are for the target
+    if (args.length > 1)
+    {
+        targetExec(args[1]);
+        
+        if (args.length > 2)
+        {
+            targetExecArgs(args[2..$]);
+        }
+    }
+    
     // Run server
-    try startServer(adapter, args);
+    try startServer(adapter);
     catch (Exception ex)
     {
         debug logCritical("Unhandled Exception: %s", ex);
