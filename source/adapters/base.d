@@ -67,6 +67,8 @@ enum CloseAction
 struct AdapterRequest
 {
     RequestType type;
+    /// Request ID. Must be non-zero.
+    int id;
     
     union
     {
@@ -98,7 +100,7 @@ struct AdapterRequest
 /// by the server.
 struct AdapterReply
 {
-    RequestType type; // Initial request
+    
 }
 
 /// Used to reply an error back to the client, that the request
@@ -148,6 +150,23 @@ enum EventType
     terminated,
     /// Thread event.
     thread,
+}
+
+// DAP has these output message types:
+// - console  : Client UI debug console, informative only
+// - important: Important message from debugger
+// - stdout   : Debuggee stdout message
+// - stderr   : Debuggee stderr message
+// - telemetry: Sent to a telemetry server instead of client
+//
+// MI has these output message types:
+// - ~ : Stdout output
+// - & : Command echo
+enum EventMessageType
+{
+    stdout,
+    stderr,
+    
 }
 
 struct AdapterEvent

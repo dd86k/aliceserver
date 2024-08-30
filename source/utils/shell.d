@@ -110,6 +110,8 @@ unittest
     // empty inputs
     assert(shellArgs(null) == null);
     assert(shellArgs("") == null);
+    assert(shellArgs("    ") == null);
+    assert(shellArgs("\t\n") == null);
     // spacing
     assert(shellArgs("hello") == [ "hello" ]);
     assert(shellArgs("     hello") == [ "hello" ]);

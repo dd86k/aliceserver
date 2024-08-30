@@ -84,7 +84,8 @@ class DAPAdapter : Adapter
         
         // Parse JSON into a message
         JSONValue j = parseJSON(cast(immutable(char)[])buffer);
-        request_seq = cast(int)j["seq"].integer; // Must be 32-bit int
+        AdapterRequest request;
+        request.id = cast(int)j["seq"].integer; // Must be 32-bit int
         string mtype = j["type"].str;
         if (mtype != "request")
         {
@@ -98,7 +99,6 @@ class DAPAdapter : Adapter
         scope mcommand = pcommand.str(); // Validated before Request.init
         
         logTrace("command: '%s'", mcommand);
-        AdapterRequest request;
         switch (mcommand) {
         // Initialize DAP session, server services not required
         case "initialize":
@@ -153,15 +153,25 @@ class DAPAdapter : Adapter
                 clientcap = " none";
             logInfo("Client capabilities:%s", clientcap);
             
-            AdapterReply res;
-            res.type = RequestType.initializaton;
-            reply(res);
+            j["command"] = "initialize";
+            
+            JSONValue jcapabilities;
+            foreach (ref Capability capability; server.capabilities)
+            {
+                if (capability.supported)
+                    jcapabilities[capability.name] = true;
+            }
+            
+            if (jcapabilities.isNull() == false)
+                j["body"] = jcapabilities;
+            
+            send(j);
             goto Lread;
         // Client configuration done, server services not required
         case "configurationDone":
             JSONValue jconfigdone;
             jconfigdone["seq"] = current_seq++;
-            jconfigdone["request_seq"] = request_seq;
+            jconfigdone["request_seq"] = request.id;
             jconfigdone["type"] = "response";
             jconfigdone["success"] = true;
             jconfigdone["command"] = "configurationDone";
@@ -213,29 +223,16 @@ class DAPAdapter : Adapter
     override
     void reply(AdapterReply response)
     {
-        logTrace("Response=%s", response.type);
+        logTrace("Response=%s", request.type);
         
         JSONValue j;
         j["seq"] = current_seq++;
-        j["request_seq"] = request_seq;
+        j["request_seq"] = request.id;
         j["type"] = "response";
         j["success"] = true;
         
-        switch (response.type) {
+        switch (request.type) {
         case RequestType.unknown:
-            break;
-        case RequestType.initializaton:
-            j["command"] = "initialize";
-            
-            JSONValue jcapabilities;
-            foreach (ref Capability capability; server.capabilities)
-            {
-                if (capability.supported)
-                    jcapabilities[capability.name] = true;
-            }
-            
-            if (jcapabilities.isNull() == false)
-                j["body"] = jcapabilities;
             break;
         case RequestType.launch: // Empty reply bodies
             j["command"] = "launch";
@@ -244,7 +241,7 @@ class DAPAdapter : Adapter
             j["command"] = "attach";
             break;
         default:
-            throw new Exception(text("Not implemented: ", response.type));
+            throw new Exception(text("Not implemented: ", request.type));
         }
         
         send(j);
@@ -256,14 +253,11 @@ class DAPAdapter : Adapter
         logTrace("Error=%s", error.message);
         
         JSONValue j;
-        
         j["seq"] = current_seq++;
-        j["request_seq"] = request_seq; // todo: match seq
+        j["request_seq"] = request.id;
         j["type"] = "response";
         j["success"] = false;
-        j["body"] = [
-            "error": error.message
-        ];
+        j["body"] = [ "error": error.message ];
         
         send(j);
     }
@@ -310,8 +304,9 @@ class DAPAdapter : Adapter
     }
     
 private:
+    AdapterRequest request;
+    /// Server sequencial ID.
     int current_seq = 1;
-    int request_seq;
     RequestType processCreation;
     
     struct ClientCapabilities

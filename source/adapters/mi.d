@@ -142,9 +142,6 @@ class MIAdapter : Adapter
             goto Lread;
         }
         
-        // Recognized requests
-        string requestCommand = args[0];
-        
         // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
@@ -158,9 +155,20 @@ class MIAdapter : Adapter
         //       - file-exec-and-symbols: set exec and symbols
         //       - goto: break-insert -t TARGET or exec-jump TARGET
         
-        // Command list: gdb/mi/mi-cmds.c
-        // Filter by recognized requests
-        AdapterRequest request;
+        // Commands can come in two flavors: Numbered and unnumbered
+        //
+        // Unnumbered is just "-file-exec-and-symbols", this is mostly expected
+        // for simple workloads, where we are expecting one process.
+        //
+        // Numbered has an request ID attached like "1-file-exec-and-symbols",
+        // this allows (assumingly) the control of multiple processes.
+        //
+        // So, a check is performed.
+        string requestCommand = args[0];
+        
+        // TODO: (required for Native Debug) numbered requests
+        
+        // Filtered by recognized requests (Command list: gdb/mi/mi-cmds.c)
         switch (requestCommand) {
         // -exec-run [ --all | --thread-group N ] [ --start ]
         // Start execution of target process.
@@ -180,15 +188,16 @@ class MIAdapter : Adapter
             
             reply(AdapterError("No executable to run."));
             goto Lread;
+        // Resume process execution.
         case "-exec-continue":
             request.type = RequestType.go;
             return request;
+        // Terminal process.
         case "-exec-abort":
             request.type = RequestType.terminate;
             return request;
-        case "-gdb-detach", "detach":
-            request.type = RequestType.detach;
-            return request;
+        // attach PID
+        // Attach debugger to process via its ID.
         case "attach":
             if (args.length < 2)
             {
@@ -204,6 +213,10 @@ class MIAdapter : Adapter
             }
             
             request.type = RequestType.attach;
+            return request;
+        // Detach from process.
+        case "-gdb-detach", "detach":
+            request.type = RequestType.detach;
             return request;
         case "target":
             if (args.length < 2)
@@ -230,7 +243,7 @@ class MIAdapter : Adapter
             goto Lread;
         // (gdb, lldb) Set target path and symbols as the same
         // file-exec-and-symbols PATH
-        case "file-exec-and-symbols":
+        case "-file-exec-and-symbols":
             if (args.length < 2)
             {
                 reply(AdapterError("Need target executable path"));
@@ -244,7 +257,7 @@ class MIAdapter : Adapter
         // Set target arguments.
         case "-exec-arguments":
             // If arguments given, set, otherwise, clear.
-            targetExecArgs(args.length >= 1 ? args[1..$].dup : null);
+            targetExecArgs(args.length > 1 ? args[1..$].dup : null);
             reply(AdapterReply());
             goto Lread;
         // -environment-cd PATH
@@ -308,7 +321,7 @@ class MIAdapter : Adapter
     override
     void reply(AdapterReply msg)
     {
-        switch (msg.type) {
+        switch (request.type) {
         case RequestType.launch:
             send("^running");
             break;
@@ -365,6 +378,8 @@ class MIAdapter : Adapter
     
 private:
     int miversion;
+    /// Current request
+    AdapterRequest request;
 }
 
 // Check MI version out of adapter type
@@ -372,7 +387,7 @@ int miVersion(AdapterType adp)
 {
     if (adp < AdapterType.mi || adp > AdapterType.mi4)
         return 0;
-    return adp - AdapterType.mi;
+    return (adp - AdapterType.mi) + 1;
 }
 unittest
 {
