@@ -11,20 +11,27 @@
 /// License: BSD-3-Clause-Clear
 module adapters.mi;
 
-import std.conv : to;
-import std.format : format;
-import std.file : chdir;
-import std.array : replace;
-import logging;
-import config;
-import server : AdapterType, targetExec, targetExecArgs;
-import utils.shell : shellArgs;
 import adapters.base;
+import config;
+import logging;
+import server : AdapterType, targetExec, targetExecArgs;
+import std.array : replace;
+import std.ascii : isDigit;
+import std.conv : to;
+import std.file : chdir;
+import std.format : format;
+import std.string : indexOf;
+import utils.shell : shellArgs;
 
-// NOTE: GDB/MI versions
+// NOTE: GDB/MI versions and commmands
+//
+//       The most important aspect to be as close to GDB as possible, since LLVM
+//       does not distribute compiled llvm-mi binaries anymore, I believe maybe either
+//       switched to gdb-mi or llvm-vscode.
 //
 //       Handling version variants is currently a work in progress. But right now,
-//       has no significant of its own.
+//       has no significance of its own. It looks like GDB defaults to mi2, regardless
+//       if "mi" is passed to it, you can test that using "-environment-pwd".
 //
 //       MI   GDB  Breaking changes
 //        1   5.1
@@ -47,13 +54,14 @@ import adapters.base;
 //
 //       mi-async 1 (target-async in <= gdb 7.7)
 //
-//       Debian  6: GDB 7.0
-//       Debian  7: GDB 7.4
-//       Debian  8: GDB 7.7
-//       Debian  9: GDB 7.12
-//       Debian 10: GDB 8.2
-//       Debian 11: GDB 10.1
-//       Debian 12: GDB 13.1
+//       Distro      GDBVer
+//       Debian  6      7.0
+//       Debian  7      7.4
+//       Debian  8      7.7
+//       Debian  9     7.12
+//       Debian 10      8.2
+//       Debian 11     10.1
+//       Debian 12     13.1
 
 // NOTE: code-debug
 //
@@ -142,6 +150,23 @@ class MIAdapter : Adapter
             goto Lread;
         }
         
+        request = AdapterRequest.init;
+        
+        // Commands can come in two flavors: Numbered and unnumbered
+        //
+        // Unnumbered is just "-file-exec-and-symbols", this is mostly expected
+        // for simple workloads, where we are expecting one process.
+        //
+        // Numbered has an request ID attached like "1-file-exec-and-symbols",
+        // this allows (assumingly) the control of multiple processes.
+        //
+        // Commands like "123e" will be parsed (by GDB) as id=123 command="e".
+        //
+        // On GDB, a number alone is a no-op, but a (seemingly) valid command,
+        // since it replies with `N^done\n` where N was the number input.
+        MICommand command = miParseCommand(args[0]);
+        request.id = command.id;
+        
         // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
@@ -155,21 +180,8 @@ class MIAdapter : Adapter
         //       - file-exec-and-symbols: set exec and symbols
         //       - goto: break-insert -t TARGET or exec-jump TARGET
         
-        // Commands can come in two flavors: Numbered and unnumbered
-        //
-        // Unnumbered is just "-file-exec-and-symbols", this is mostly expected
-        // for simple workloads, where we are expecting one process.
-        //
-        // Numbered has an request ID attached like "1-file-exec-and-symbols",
-        // this allows (assumingly) the control of multiple processes.
-        //
-        // So, a check is performed.
-        string requestCommand = args[0];
-        
-        // TODO: (required for Native Debug) numbered requests
-        
         // Filtered by recognized requests (Command list: gdb/mi/mi-cmds.c)
-        switch (requestCommand) {
+        switch (command.name) {
         // -exec-run [ --all | --thread-group N ] [ --start ]
         // Start execution of target process.
         //   --all: Start all target subprocesses
@@ -311,7 +323,7 @@ class MIAdapter : Adapter
         // Ignore list
         case "gdb-set", "inferior-tty-set": goto Lread;
         default:
-            reply(AdapterError(format(`Unknown request: "%s"`, requestCommand)));
+            reply(AdapterError(format(`Unknown request: "%s"`, command.name)));
             break;
         }
         
@@ -398,4 +410,57 @@ unittest
     assert(miVersion(AdapterType.mi4) == 4);
     // Invalid MI verisons
     assert(miVersion(AdapterType.dap) == 0);
+}
+
+private
+struct MICommand
+{
+    string name;
+    int id;
+}
+
+// Throws: ConvOverflowException from `to` template
+private
+MICommand miParseCommand(string command)
+{
+    MICommand com = void;
+    
+    // TODO: Background syntax
+    //       "example&"
+    
+    // Attempt to get ID from command
+    // Examples:
+    // - "0e" -> 0 (but probably not a good idea)
+    // - "123abc" -> 123
+    // - "1-do-thing" -> 1
+    size_t i;               // ID buffer index
+    char[10] idbuf = void;  // ID buffer
+    while (i < command.length && i < idbuf.sizeof && isDigit(command[i]))
+    {
+        idbuf[i] = command[i]; i++;
+    }
+    
+    if (i) // if id in buffer
+    {
+        com.id      = to!int(idbuf[0..i]);
+        com.name    = command[i..$];
+    }
+    else // if no id
+    {
+        com.id      = 0;
+        com.name    = command;
+    }
+    
+    return com;
+}
+unittest
+{
+    assert(miParseCommand("example").name == "example");
+    assert(miParseCommand("example").id   == 0);
+    
+    assert(miParseCommand("123example").name == "example");
+    assert(miParseCommand("123example").id   == 123);
+    
+    assert(miParseCommand("1-file-exec-and-symbols").name == "-file-exec-and-symbols");
+    assert(miParseCommand("1-file-exec-and-symbols").id   == 1);
 }
