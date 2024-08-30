@@ -82,9 +82,10 @@ class DAPAdapter : Adapter
     Lread:
         ubyte[] buffer = receive();
         
+        request = AdapterRequest.init;
+        
         // Parse JSON into a message
         JSONValue j = parseJSON(cast(immutable(char)[])buffer);
-        AdapterRequest request;
         request.id = cast(int)j["seq"].integer; // Must be 32-bit int
         string mtype = j["type"].str;
         if (mtype != "request")
