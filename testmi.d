@@ -171,7 +171,7 @@ OPTIONS`, ores.options);
     
     // Spawn server, redirect all except stderr (inherits handle)
     log(Op.info, "Starting %s...", oserver);
-    string[] launchopts = svropts ~ (args.length >= 1 ? args[1..$] : []);
+    string[] launchopts = svropts ~ [ "--adapter=mi" ] ~ (args.length >= 1 ? args[1..$] : []);
     server = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
     // NOTE: waitTimeout is only defined for Windows,
     //       despite Pid.performWait being available for POSIX
