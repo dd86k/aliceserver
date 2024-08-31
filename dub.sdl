@@ -1,13 +1,14 @@
 name "aliceserver"
-description "Alicedbg DAP server"
+description "Debugger server implementing DAP and MI"
 authors "dd86k <dd@dax.moe>"
 copyright "Copyright © 2024, dd86k <dd@dax.moe>"
 license "BSD-3-Clause-Clear"
 
-dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="852c20d01cd6f90abc37a66927014eafd2ca3423"
+dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="937f5ee23d757e48bf47435c011e75dba89cd371"
 dependency "ddlogger" repository="git+https://github.com/dd86k/ddlogger.git" version="99a077a599c6d56e4fdeefb8b5d5002620cd228f"
 
-# NOTE: By default, docs are built with dependencies, which is silly!
+# NOTE: By default, docs are built with dependencies.
+#       These build types force building docs using project modules only.
 buildType "docs" {
 	buildRequirements "allowWarnings"
 	buildOptions "syntaxOnly"

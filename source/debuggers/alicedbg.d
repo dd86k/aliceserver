@@ -5,11 +5,10 @@
 /// License: BSD-3-Clause-Clear
 module debuggers.alicedbg;
 
-import std.string;
-import debuggers.base;
+import std.string : toStringz, fromStringz;
 import logging;
-import adbg.debugger.process;
-import adbg.debugger.exception;
+import debuggers.base : IDebugger;
+import adbg.debugger;
 import adbg.error;
 
 // TODO: Could be possible to make a "AlicedbgRemote" class for remote sessions
@@ -37,6 +36,7 @@ class Alicedbg : IDebugger
     }
     
 private:
+    /// Current process.
     adbg_process_t *process;
     
     string errorMessage()
