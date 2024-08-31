@@ -21,6 +21,7 @@ import std.conv : to;
 import std.file : chdir;
 import std.format : format;
 import std.string : indexOf;
+import std.outbuffer : OutBuffer;
 import utils.shell : shellArgs;
 
 // NOTE: GDB/MI versions and commmands
@@ -30,8 +31,9 @@ import utils.shell : shellArgs;
 //       switched to gdb-mi or llvm-vscode.
 //
 //       Handling version variants is currently a work in progress. But right now,
-//       has no significance of its own. It looks like GDB defaults to mi2, regardless
-//       if "mi" is passed to it, you can test that using "-environment-pwd".
+//       it has no significance of its own. When "mi" is specified, GDB defaults to
+//       the latest version: "Since --interpreter=mi always points to the latest MI version,"
+//       Since there is no way to specify MI version 1, it will not be implemented.
 //
 //       MI   GDB  Breaking changes
 //        1   5.1
@@ -106,6 +108,7 @@ string parseCString(string cstr)
 }
 */
 
+// TODO: To 7-bit ASCII, so special chars/bytes should be escaped
 private
 string formatCString(A...)(string fmt, A args)
 {
@@ -120,11 +123,11 @@ unittest
 
 class MIAdapter : Adapter
 {
-    this(ITransport t, int version_ = 1)
+    this(ITransport t, int version_ = 2)
     {
         super(t);
         
-        if (version_ < 1 || version_ > 4)
+        if (version_ < 2 || version_ > 4) // failsafe
             throw new Exception("Wrong MI version specified");
         miversion = version_;
         
@@ -175,6 +178,9 @@ class MIAdapter : Adapter
         //       - -exec-continue: continue
         //       - -exec-interrupt [--all|--thread-group N]: pause
         //       - -exec-jump LOCSPEC: continue example.c:10
+        //       - -exec-show-arguments
+        //       - mi-async
+        //       - gdb-set: For example, "gdb-set target-async on"
         //       - break-insert: insert breakpoint
         //       - break-condition: change condition to breakpoint
         //       - file-exec-and-symbols: set exec and symbols
@@ -187,7 +193,7 @@ class MIAdapter : Adapter
         //   --all: Start all target subprocesses
         //   --thread-group: Start only thread group (of type process) for target process
         //   --start: Stop at target's main function.
-        case "-exec-run":
+        case "exec-run":
             request.type = RequestType.launch;
             
             // If we saved the exec target
@@ -201,16 +207,16 @@ class MIAdapter : Adapter
             reply(AdapterError("No executable to run."));
             goto Lread;
         // Resume process execution.
-        case "-exec-continue":
+        case "exec-continue":
             request.type = RequestType.go;
             return request;
         // Terminal process.
-        case "-exec-abort":
+        case "exec-abort":
             request.type = RequestType.terminate;
             return request;
         // attach PID
-        // Attach debugger to process via its ID.
-        case "attach":
+        // Attach debugger to process by its ID.
+        case "target-attach", "attach":
             if (args.length < 2)
             {
                 reply(AdapterError("Missing process-id argument."));
@@ -226,10 +232,16 @@ class MIAdapter : Adapter
             
             request.type = RequestType.attach;
             return request;
-        // Detach from process.
-        case "-gdb-detach", "detach":
+        // -gdb-detach [ pid | gid ]
+        // Detach debugger from process, keeping its execution alive.
+        case "target-detach", "gdb-detach", "detach":
             request.type = RequestType.detach;
             return request;
+        // -target-disconnect
+        // Disconnect from remote target.
+        //case "target-disconnect":
+        // target TYPE [OPTIONS]
+        // Set target parameters.
         case "target":
             if (args.length < 2)
             {
@@ -253,9 +265,9 @@ class MIAdapter : Adapter
                 reply(AdapterError(format("Invalid target type: %s", targetType)));
             }
             goto Lread;
-        // (gdb, lldb) Set target path and symbols as the same
         // file-exec-and-symbols PATH
-        case "-file-exec-and-symbols":
+        // (gdb, lldb) Set target path and symbols as the same
+        case "file-exec-and-symbols":
             if (args.length < 2)
             {
                 reply(AdapterError("Need target executable path"));
@@ -267,14 +279,14 @@ class MIAdapter : Adapter
             goto Lread;
         // -exec-arguments ARGS
         // Set target arguments.
-        case "-exec-arguments":
+        case "exec-arguments":
             // If arguments given, set, otherwise, clear.
             targetExecArgs(args.length > 1 ? args[1..$].dup : null);
             reply(AdapterReply());
             goto Lread;
         // -environment-cd PATH
         // Set debugger directory.
-        case "-environment-cd":
+        case "environment-cd":
             if (args.length < 2)
             {
                 reply(AdapterError("Missing PATH directory."));
@@ -291,13 +303,11 @@ class MIAdapter : Adapter
             
             reply(AdapterReply());
             goto Lread;
-        // TODO: print exec arguments
-        //case "-exec-show-arguments":
-        
-        //case "mi-async": // TODO: mi-async
+        // show [INFO]
+        // Show information about session.
+        // Without an argument, GDB shows everything as stream output and
+        // quits without sending a reply nor the prompt.
         case "show":
-            // NOTE: "show" alone makes GDB show everything
-            //       and then quits, without saying anything else.
             if (args.length < 1)
             {
                 reply(AdapterReply());
@@ -307,7 +317,7 @@ class MIAdapter : Adapter
             string showCommand = args[1];
             switch (showCommand) {
             case "version":
-                static immutable string APPVERSION = "Aliceserver "~PROJECT_VERSION~"\n";
+                static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
                 send(APPVERSION);
                 send(msgDone);
                 send(gdbPrompt);
@@ -316,31 +326,55 @@ class MIAdapter : Adapter
             }
             
             reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
-            break;
-        case "q", "quit", "-gdb-exit":
+            goto Lread;
+        // -info-gdb-mi-command COMMAND
+        // Check if command exists.
+        //case "info-gdb-mi-command":
+        //    goto Lread;
+        // List debugger features
+        // gdb 13.1 example: ^done,features=["example","python"]
+        // NOTE: GDB only accepts "-list-features", Native Debug sends "list-features"
+        //       Command parse removes it for convenience
+        case "list-features":
+            // See §27.23 GDB/MI Support Commands for list.
+            send("^done,features=[]\n");
+            send(gdbPrompt);
+            goto Lread;
+        case "q", "quit", "gdb-exit":
             request.type = RequestType.close;
             return request;
         // Ignore list
         case "gdb-set", "inferior-tty-set": goto Lread;
         default:
             reply(AdapterError(format(`Unknown request: "%s"`, command.name)));
-            break;
+            goto Lread;
         }
-        
-        goto Lread;
     }
     
     override
     void reply(AdapterReply msg)
     {
+        // NOTE: stdio transport flushes on each send
+        //       clients are expected to read until newlines, so emulate that
+        
+        scope OutBuffer buffer = new OutBuffer();
+        buffer.reserve(2048);
+        
+        // Attach token id to result record
+        if (request.id) buffer.writef("%u", request.id);
+        
+        // Some requests may emit different result words
         switch (request.type) {
-        case RequestType.launch:
-            send("^running");
+        case RequestType.launch: // Compability
+            buffer.write("^running\n");
             break;
         default:
-            send(msgDone); // "^done\n"
+            // TODO: Add result data
+            buffer.write("^done\n");
         }
-        send(gdbPrompt);
+        
+        send(buffer.toBytes());
+        send(gdbPrompt); // Ready
     }
     
     override
@@ -397,14 +431,17 @@ private:
 // Check MI version out of adapter type
 int miVersion(AdapterType adp)
 {
-    if (adp < AdapterType.mi || adp > AdapterType.mi4)
-        return 0;
-    return (adp - AdapterType.mi) + 1;
+    switch (adp) with (AdapterType) { // same order as gdb
+    case mi4, mi:   return 4;
+    case mi3:       return 3;
+    case mi2:       return 2;
+    default:        return 0;
+    }
 }
 unittest
 {
     // Valid MI versions
-    assert(miVersion(AdapterType.mi)  == 1);
+    assert(miVersion(AdapterType.mi)  == 4);
     assert(miVersion(AdapterType.mi2) == 2);
     assert(miVersion(AdapterType.mi3) == 3);
     assert(miVersion(AdapterType.mi4) == 4);
@@ -419,6 +456,7 @@ struct MICommand
     int id;
 }
 
+/// Parse the command 
 // Throws: ConvOverflowException from `to` template
 private
 MICommand miParseCommand(string command)
@@ -427,6 +465,7 @@ MICommand miParseCommand(string command)
     
     // TODO: Background syntax
     //       "example&"
+    //       bool background;
     
     // Attempt to get ID from command
     // Examples:
@@ -440,16 +479,22 @@ MICommand miParseCommand(string command)
         idbuf[i] = command[i]; i++;
     }
     
-    if (i) // if id in buffer
+    // Parse id if there is one in the buffer
+    if (i)
     {
         com.id      = to!int(idbuf[0..i]);
         com.name    = command[i..$];
     }
-    else // if no id
+    else
     {
         com.id      = 0;
         com.name    = command;
     }
+    
+    // GDB/MI §27.23: "Note that the dash (-) starting all GDB/MI commands is
+    //                 technically not part of the command name"
+    if (com.name[0] == '-')
+        com.name = com.name[1..$];
     
     return com;
 }
@@ -461,6 +506,9 @@ unittest
     assert(miParseCommand("123example").name == "example");
     assert(miParseCommand("123example").id   == 123);
     
-    assert(miParseCommand("1-file-exec-and-symbols").name == "-file-exec-and-symbols");
+    assert(miParseCommand("-file-exec-and-symbols").name == "file-exec-and-symbols");
+    assert(miParseCommand("-file-exec-and-symbols").id   == 0);
+    
+    assert(miParseCommand("1-file-exec-and-symbols").name == "file-exec-and-symbols");
     assert(miParseCommand("1-file-exec-and-symbols").id   == 1);
 }

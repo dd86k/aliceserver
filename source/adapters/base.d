@@ -190,6 +190,8 @@ abstract class Adapter
         transport = t;
     }
     
+    // TODO: Consider mutex *if* data starts getting mangled
+    
     // Send data to client.
     void send(ubyte[] data)
     {

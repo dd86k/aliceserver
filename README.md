@@ -200,9 +200,9 @@ using c-string formatting.
 | Exec | `*` | Async execution state changed. |
 | Notify | `=` | Async notification related to the debugger. |
 | Status | `+` | Async status change. |
-| Console Stream | `~` | Console informational message from debugger. |
-| Target Stream | `@` | Program output. |
-| Log Stream | `&` | Server repeated command for logging purposes. |
+| Console Stream | `~` | Console messages intended to be printed. |
+| Target Stream | `@` | Program output when truly asynchronous, for remote targets. |
+| Log Stream | `&` | GDB internal messages. |
 
 Some commands may start with `-`.
 
