@@ -94,11 +94,11 @@ void main(string[] args)
     }
     
     // Setup logger
-    logSetLevel(osettings.logLevel);
     if (osettings.logStderr)
         logAddAppender(new ConsoleAppender());
     if (osettings.logFile)
         logAddAppender(new FileAppender(osettings.logFile));
+    logSetLevel(osettings.logLevel);
     logInfo("New instance with options %s", osettings);
     
     // Select main adapter with transport
