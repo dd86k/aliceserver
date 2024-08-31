@@ -75,6 +75,13 @@ class DAPAdapter : Adapter
         logInfo("Server capabilities:%s", servercap);
     }
     
+    // Return short name of this adapter
+    override
+    string name()
+    {
+        return "dap";
+    }
+    
     // Parse incoming data from client to a message
     override
     AdapterRequest listen()

@@ -91,7 +91,7 @@ void startServer(Adapter adapter) // Handles adapter
     assert(adapter, "No adapter set before calling function");
     
     // Get requests
-    logTrace("Listening..."); // TODO: Add adapter and transport names into log
+    logTrace("Listening to %s via %s...", adapter.transportName(), adapter.name());
     RequestType debuggerType;
     Tid debuggerTid;
     AdapterRequest request = void;

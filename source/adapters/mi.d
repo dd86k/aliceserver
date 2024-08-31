@@ -134,6 +134,17 @@ class MIAdapter : Adapter
         send(gdbPrompt); // Ready!
     }
     
+    // Return short name of this adapter
+    override
+    string name()
+    {
+        switch (miversion) {
+        case 3:     return "mi3";
+        case 2:     return "mi2";
+        default:    return "mi4";
+        }
+    }
+    
     override
     AdapterRequest listen()
     {

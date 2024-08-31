@@ -190,11 +190,16 @@ abstract class Adapter
         transport = t;
     }
     
-    // TODO: Consider mutex *if* data starts getting mangled
+    // Get transport name.
+    string transportName()
+    {
+        return transport.name();
+    }
     
     // Send data to client.
     void send(ubyte[] data)
     {
+        // TODO: Consider mutex over transport *if* data starts getting mangled
         logTrace("Sending %u bytes", data.length);
         transport.send(data);
     }
@@ -220,16 +225,18 @@ abstract class Adapter
         return data;
     }
     
+    // Short name of the adapter
+    abstract string name();
     // Listen for requests.
-    AdapterRequest listen();
+    abstract AdapterRequest listen();
     // Send a successful reply to request.
-    void reply(AdapterReply msg);
+    abstract void reply(AdapterReply msg);
     // Send an error reply to request.
-    void reply(AdapterError msg);
+    abstract void reply(AdapterError msg);
     // Send an event.
-    void event(AdapterEvent msg);
+    abstract void event(AdapterEvent msg);
     // Close adapter.
-    void close();
+    abstract void close();
 
 private:
     ITransport transport;
