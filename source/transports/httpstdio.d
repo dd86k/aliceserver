@@ -27,12 +27,7 @@ class HTTPStdioTransport : ITransport
     
     void send(ubyte[] data)
     {
-        char[64] headbuf = void;
-        char[] header = sformat(headbuf[],
-            "Content-Length: %u\r\n"~
-            "\r\n",
-            data.length);
-        stdout.rawWrite(header);
+        stdout.rawWrite(text("Content-Length: ", data.length, "\r\n\r\n"));
         stdout.rawWrite(data);
         stdout.flush();
     }

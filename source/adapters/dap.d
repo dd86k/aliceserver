@@ -161,19 +161,7 @@ class DAPAdapter : Adapter
                 clientcap = " none";
             logInfo("Client capabilities:%s", clientcap);
             
-            j["command"] = "initialize";
-            
-            JSONValue jcapabilities;
-            foreach (ref Capability capability; server.capabilities)
-            {
-                if (capability.supported)
-                    jcapabilities[capability.name] = true;
-            }
-            
-            if (jcapabilities.isNull() == false)
-                j["body"] = jcapabilities;
-            
-            send(j);
+            reply(AdapterReply());
             goto Lread;
         // Client configuration done, server services not required
         case "configurationDone":
@@ -242,6 +230,21 @@ class DAPAdapter : Adapter
         switch (request.type) {
         case RequestType.unknown:
             break;
+        case RequestType.initializaton:
+            j["command"] = "initialize";
+            
+            JSONValue jcapabilities;
+            foreach (ref Capability capability; server.capabilities)
+            {
+                if (capability.supported)
+                    jcapabilities[capability.name] = true;
+            }
+            
+            if (jcapabilities.isNull() == false)
+                j["body"] = jcapabilities;
+            
+            send(j);
+            break;
         case RequestType.launch: // Empty reply bodies
             j["command"] = "launch";
             break;
@@ -249,7 +252,7 @@ class DAPAdapter : Adapter
             j["command"] = "attach";
             break;
         default:
-            throw new Exception(text("Not implemented: ", request.type));
+            throw new Exception(text("Reply unimplemented: ", request.type));
         }
         
         send(j);
@@ -291,7 +294,7 @@ class DAPAdapter : Adapter
             ];
             break;
         default:
-            assert(false, "Implement event type");
+            throw new Exception(text("Event unimplemented: ", event.type));
         }
         
         send(j);
