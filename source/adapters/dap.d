@@ -1,4 +1,10 @@
-/// Debuger Adapter Protocol adapter.
+/// Debuger Adapter Protocol implementation.
+///
+/// References:
+/// - https://microsoft.github.io/debug-adapter-protocol/
+/// - gdb/python/lib/gdb/dap/
+/// - lldb/tools/lldb-vscode/
+///   lldb-vscode is soon to be renamed lldb-dap
 ///
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
@@ -12,12 +18,6 @@ import std.utf : validate;
 import adapters.base;
 import utils.json;
 import ddlogger;
-
-// References:
-// - https://microsoft.github.io/debug-adapter-protocol/
-// - gdb/python/lib/gdb/dap/
-// - lldb/tools/lldb-vscode/
-//   lldb-vscode is soon to be renamed lldb-dap
 
 // NOTE: DAP notes
 //       - Client only sends Requests.
@@ -44,7 +44,6 @@ import ddlogger;
 private
 struct Capability
 {
-    //TODO: Add ctor with default value?
     string name;
     bool supported;
     
@@ -58,7 +57,6 @@ struct Capability
 
 private enum PathFormat { path, uri }
 
-//TODO: Consider update seq atomically
 class DAPAdapter : Adapter
 {
     this(ITransport t)
@@ -114,17 +112,11 @@ class DAPAdapter : Adapter
             
             JSONValue jarguments = j["arguments"];
             
-            //
             // Required fields
-            //
-            
             required(jarguments, "adapterID", client.adapterId);
             logInfo("Adapter ID: %s", client.adapterId);
             
-            //
             // Optional fields
-            //
-            
             optional(jarguments, "clientID", client.id);
             optional(jarguments, "clientName", client.name);
             with (client) if (id && name)
@@ -147,15 +139,14 @@ class DAPAdapter : Adapter
                 }
             }
             
-            // Process client capabilities
+            // Process client capabilities by attempting to query all
+            // possible fields and populating them in our client features array
             string clientcap;
             foreach (ref Capability capability; client.capabilities)
             {
                 optional(jarguments, capability.name, capability.supported);
                 if (capability.supported)
-                {
-                    clientcap ~= text(" ", capability.prettyName());
-                }
+                    clientcap ~= text(" ", capability.prettyName()); // names, informal
             }
             if (clientcap == string.init)
                 clientcap = " none";
@@ -315,7 +306,9 @@ class DAPAdapter : Adapter
     }
     
 private:
+    /// Current serving request.
     AdapterRequest request;
+    // TODO: Consider updating seq atomically
     /// Server sequencial ID.
     int current_seq = 1;
     RequestType processCreation;
@@ -330,10 +323,9 @@ private:
         /// 'path' or 'uri'
         PathFormat pathFormat;
         
-        //TODO: Issue with linesStartAt1/columnsStartAt1: They default to one
         Capability[] capabilities = [
-            { "linesStartAt1" },
-            { "columnsStartAt1" },
+            { "linesStartAt1", true },
+            { "columnsStartAt1", true },
             { "supportsVariableType" },
             { "supportsVariablePaging" },
             { "supportsRunInTerminalRequest" },

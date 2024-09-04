@@ -63,9 +63,7 @@ unittest
     assert(optional(v, "field_name_404", value) == false);
 }
 
-/// Optionally set the target from JSON.
-///
-/// Throws an exception if key was not found.
+/// Require JSON value by key.
 /// Example:
 /// ---
 /// JSONValue j = [
@@ -79,6 +77,7 @@ unittest
 ///   json = JSONValue to get value from.
 ///   name = JSON field name.
 ///   receiver = lvalue receiving the value.
+/// Throws: Throws JSONException if key was not found.
 void required(T)(ref JSONValue json, string name, ref T receiver)
 {
     static if (is(T == JSONValue))
@@ -99,17 +98,45 @@ unittest
     try
     {
         required(v, "required_field", value);
-        assert(false);
+        assert(false); // didn't throw
     }
-    catch (Exception)
-    {
-        
-    }
+    catch (Exception) {}
 }
 
-/+void setoptional(T)(ref JSONValue json, string name, T value)
+/// Require JSON value by key.
+/// Example:
+/// ---
+/// JSONValue j = [
+///   "test": 3
+/// ];
+/// int val;
+/// required(j, "test", val);
+/// assert(val == 3);
+/// ---
+/// Params:
+///   json = JSONValue to get value from.
+///   name = JSON field name.
+///   receiver = lvalue receiving the value.
+/// Returns: Value by requested type.
+/// Throws: Throws JSONException if key was not found.
+T required(T)(ref JSONValue json, string name)
 {
-    if (value == value.init)
-        return;
-    json[name] = value;
-}+/
+    static if (is(T == JSONValue))
+        return json[name];
+    else
+        return json[name].get!T;
+}
+unittest
+{
+    JSONValue v;
+    v["test"] = "value";
+    
+    assert(required!string(v, "test") == "value");
+    
+    try
+    {
+        assert(required!string(v, "required_field") == ""); // force comparison
+        assert(false); // didn't throw
+    }
+    catch (Exception) {}
+}
