@@ -90,10 +90,22 @@ void startServer(Adapter adapter) // Handles adapter
 {
     assert(adapter, "No adapter set before calling function");
     
+    IDebugger debugger = new AliceDebugger();
+    
     // Get requests
     logTrace("Listening to %s via %s...", adapter.transportName(), adapter.name());
-    RequestType debuggerType;
-    Tid debuggerTid;
+    AdapterRequestType debuggerType;
+    //Tid debuggerTid;
+    Thread eventThread = new Thread({
+        Levent:
+            AdapterEvent event = debugger.wait();
+            adapter.event(event);
+            
+            switch (event.type) with (AdapterEventType) {
+            case stopped: return;
+            default: goto Levent;
+            }
+        });
     AdapterRequest request = void;
 Lrequest:
     try request = adapter.listen();
@@ -107,36 +119,58 @@ Lrequest:
     // Process request depending on type
     switch (request.type) {
     // Launch process with debugger
-    case RequestType.launch:
+    case AdapterRequestType.launch:
         if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));
             goto Lrequest;
         }
         
-        debuggerTid = spawn(&startDebugger, thisTid,
-            DebuggerStartOptions(request.launchOptions.path));
+        try with (request.launchOptions) debugger.launch(path, null, null);
+        catch (Exception ex)
+        {
+            adapter.reply(AdapterError(ex.msg));
+            goto Lrequest;
+        }
         
+        /*
+        debuggerTid = spawn(&startDebugger, thisTid,
+            DebuggerStartOptions(request.launchOptions.path),
+            (AdapterEvent event) {
+                adapter.event(event);
+            });
         MsgReply reply = receiveOnly!MsgReply;
         if (reply.message)
         {
             adapter.reply(AdapterError(reply.message));
             goto Lrequest;
         }
+        */
         
         adapter.reply(AdapterReply());
-        debuggerType = RequestType.launch;
+        debuggerType = AdapterRequestType.launch;
         break;
     // Attach debugger to process
-    case RequestType.attach:
+    case AdapterRequestType.attach:
         if (debuggerType)
         {
             adapter.reply(AdapterError(messageDebuggerActive));
             goto Lrequest;
         }
         
+        try with (request.attachOptions) debugger.attach(pid);
+        catch (Exception ex)
+        {
+            adapter.reply(AdapterError(ex.msg));
+            goto Lrequest;
+        }
+        
+        /*
         debuggerTid = spawn(&startDebugger, thisTid,
-            DebuggerStartOptions(request.attachOptions.pid));
+            DebuggerStartOptions(request.attachOptions.pid),
+            (AdapterEvent event) {
+                adapter.event(event);
+            });
         
         MsgReply reply = receiveOnly!MsgReply;
         if (reply.message)
@@ -144,18 +178,26 @@ Lrequest:
             adapter.reply(AdapterError(reply.message));
             goto Lrequest;
         }
+        */
         
         adapter.reply(AdapterReply());
-        debuggerType = RequestType.attach;
+        debuggerType = AdapterRequestType.attach;
+        break;
+    case AdapterRequestType.go:
+        adapter.reply(AdapterReply());
+        eventThread.start();
         break;
     // Detach debugger from process
-    case RequestType.detach:
-        if (debuggerType == RequestType.unknown) // Nothing to detach from
+    case AdapterRequestType.detach:
+        if (debuggerType == AdapterRequestType.unknown) // Nothing to detach from
         {
             adapter.reply(AdapterError(messageDebuggerUnactive));
             goto Lrequest;
         }
         
+        //debugger.detach();
+        
+        /*
         send(debuggerTid, RequestDetach());
         
         MsgReply reply = receiveOnly!MsgReply;
@@ -164,18 +206,20 @@ Lrequest:
             adapter.reply(AdapterError(reply.message));
             goto Lrequest;
         }
+        */
         
         adapter.reply(AdapterReply());
-        debuggerType = RequestType.unknown;
+        debuggerType = AdapterRequestType.unknown;
         break;
     // Terminate process
-    case RequestType.terminate:
-        if (debuggerType == RequestType.unknown) // Nothing to terminate
+    case AdapterRequestType.terminate:
+        if (debuggerType == AdapterRequestType.unknown) // Nothing to terminate
         {
             adapter.reply(AdapterError(messageDebuggerUnactive));
             goto Lrequest;
         }
         
+        /*
         send(debuggerTid, RequestTerminate());
         
         MsgReply reply = receiveOnly!MsgReply;
@@ -184,12 +228,14 @@ Lrequest:
             adapter.reply(AdapterError(reply.message));
             goto Lrequest;
         }
+        */
         
         adapter.reply(AdapterReply());
-        debuggerType = RequestType.unknown;
+        debuggerType = AdapterRequestType.unknown;
         break;
     // Either detaches or terminates process depending how the debugger is attached
-    case RequestType.close:
+    case AdapterRequestType.close:
+        /*
         static immutable Duration quitTimeout = 10.seconds;
         switch (debuggerType) {
         case RequestType.launch: // if was launched
@@ -207,6 +253,7 @@ Lrequest:
             if (receiveTimeout(quitTimeout, (MsgReply reply) {}) == false)
                 logWarn("Debugger timeout, quitting anyway");
         }
+        */
         
         // TODO: Multi-session: Return to listen to requests if adapterCount > 0
         //       And reset debuggerType.
@@ -234,6 +281,7 @@ struct MsgReply
     string message;
 }
 
+struct RequestContinue {}
 struct RequestDetach {}
 struct RequestTerminate {}
 
@@ -242,17 +290,17 @@ struct DebuggerStartOptions
 {
     this(int pid)
     {
-        type = RequestType.attach;
+        type = AdapterRequestType.attach;
         attachOptions.pid = pid;
     }
     
     this(string path)
     {
-        type = RequestType.launch;
+        type = AdapterRequestType.launch;
         launchOptions.path = path;
     }
     
-    RequestType type;
+    AdapterRequestType type;
     union
     {
         struct DebuggerStartAttachOptions
@@ -271,13 +319,13 @@ struct DebuggerStartOptions
 // Start a new debugger instance.
 //
 // The only message this is allowed to send is MsgReply.
-void startDebugger(Tid parent, DebuggerStartOptions start) // Handles debugger
+void startDebugger(Tid parent, DebuggerStartOptions start, void delegate(AdapterEvent) sendEvent)
 {
     // Select debugger
-    IDebugger debugger = new Alicedbg();
+    IDebugger debugger = new AliceDebugger();
     
     // Hook debugger to process
-    switch (start.type) with (RequestType) {
+    switch (start.type) with (AdapterRequestType) {
     case launch:
         try debugger.launch(start.launchOptions.path, null, null);
         catch (Exception ex)
@@ -310,6 +358,10 @@ void startDebugger(Tid parent, DebuggerStartOptions start) // Handles debugger
     // Now accepting requests
     bool active = true;
     while (active) receive(
+        (RequestContinue req) {
+            AdapterEvent event = debugger.wait();
+            sendEvent(event);
+        },
         (RequestDetach req) {
             logTrace("Debugger: Detaching debugger from process...");
             /*

@@ -108,7 +108,7 @@ class DAPAdapter : Adapter
         switch (mcommand) {
         // Initialize DAP session, server services not required
         case "initialize":
-            request.type = RequestType.initializaton;
+            request.type = AdapterRequestType.initializaton;
             
             JSONValue jarguments = j["arguments"];
             
@@ -165,13 +165,13 @@ class DAPAdapter : Adapter
             send(jconfigdone);
             goto Lread;
         case "launch":
-            processCreation = request.type = RequestType.launch;
+            processCreation = request.type = AdapterRequestType.launch;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "path", request.launchOptions.path);
             break;
         case "attach":
-            processCreation = request.type = RequestType.attach;
+            processCreation = request.type = AdapterRequestType.attach;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "pid", request.attachOptions.pid);
@@ -179,9 +179,9 @@ class DAPAdapter : Adapter
         case "disconnect":
             // If launched, close debuggee.
             // If attached, detach. Unless terminateDebuggee:true specified.
-            request.type = RequestType.close;
+            request.type = AdapterRequestType.close;
             switch (processCreation) {
-            case RequestType.attach:
+            case AdapterRequestType.attach:
                 if (const(JSONValue) *pjdisconnect = "arguments" in j)
                 {
                     bool kill; // Defaults to false
@@ -193,7 +193,7 @@ class DAPAdapter : Adapter
                     request.closeOptions.action = CloseAction.detach;
                 }
                 break;
-            case RequestType.launch:
+            case AdapterRequestType.launch:
                 request.closeOptions.action = CloseAction.terminate;
                 break;
             default:
@@ -219,9 +219,9 @@ class DAPAdapter : Adapter
         j["success"] = true;
         
         switch (request.type) {
-        case RequestType.unknown:
+        case AdapterRequestType.unknown:
             break;
-        case RequestType.initializaton:
+        case AdapterRequestType.initializaton:
             j["command"] = "initialize";
             
             JSONValue jcapabilities;
@@ -236,10 +236,10 @@ class DAPAdapter : Adapter
             
             send(j);
             break;
-        case RequestType.launch: // Empty reply bodies
+        case AdapterRequestType.launch: // Empty reply bodies
             j["command"] = "launch";
             break;
-        case RequestType.attach: // Empty reply bodies
+        case AdapterRequestType.attach: // Empty reply bodies
             j["command"] = "attach";
             break;
         default:
@@ -272,7 +272,7 @@ class DAPAdapter : Adapter
         JSONValue j;
         j["seq"] = current_seq++;
         
-        switch (event.type) with (EventType) {
+        switch (event.type) with (AdapterEventType) {
         case output:
             j["event"] = "output";
             // console  : Client UI debug console, informative only
@@ -311,7 +311,7 @@ private:
     // TODO: Consider updating seq atomically
     /// Server sequencial ID.
     int current_seq = 1;
-    RequestType processCreation;
+    AdapterRequestType processCreation;
     
     struct ClientCapabilities
     {

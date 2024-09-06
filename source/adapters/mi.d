@@ -23,6 +23,7 @@ import std.format : format;
 import std.string : indexOf;
 import std.outbuffer : OutBuffer;
 import utils.shell : shellArgs;
+import utils.mi;
 
 // NOTE: GDB/MI versions and commmands
 //
@@ -205,7 +206,7 @@ class MIAdapter : Adapter
         //   --thread-group: Start only thread group (of type process) for target process
         //   --start: Stop at target's main function.
         case "exec-run":
-            request.type = RequestType.launch;
+            request.type = AdapterRequestType.launch;
             
             // If we saved the exec target
             string exec = targetExec();
@@ -219,11 +220,11 @@ class MIAdapter : Adapter
             goto Lread;
         // Resume process execution.
         case "exec-continue":
-            request.type = RequestType.go;
+            request.type = AdapterRequestType.go;
             return request;
         // Terminal process.
         case "exec-abort":
-            request.type = RequestType.terminate;
+            request.type = AdapterRequestType.terminate;
             return request;
         // attach PID
         // Attach debugger to process by its ID.
@@ -241,12 +242,12 @@ class MIAdapter : Adapter
                 goto Lread;
             }
             
-            request.type = RequestType.attach;
+            request.type = AdapterRequestType.attach;
             return request;
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
         case "target-detach", "gdb-detach", "detach":
-            request.type = RequestType.detach;
+            request.type = AdapterRequestType.detach;
             return request;
         // -target-disconnect
         // Disconnect from remote target.
@@ -352,7 +353,7 @@ class MIAdapter : Adapter
             send(gdbPrompt);
             goto Lread;
         case "q", "quit", "gdb-exit":
-            request.type = RequestType.close;
+            request.type = AdapterRequestType.close;
             return request;
         // Ignore list
         case "gdb-set", "inferior-tty-set": goto Lread;
@@ -376,7 +377,7 @@ class MIAdapter : Adapter
         
         // Some requests may emit different result words
         switch (request.type) {
-        case RequestType.launch: // Compability
+        case AdapterRequestType.launch: // Compability
             buffer.write("^running\n");
             break;
         default:
@@ -412,7 +413,7 @@ class MIAdapter : Adapter
         //   signal-meaning="Interrupt"
         // - @Hello world!
         // - ~"Message from debugger\n"
-        switch (msg.type) with (EventType) {
+        switch (msg.type) with (AdapterEventType) {
         /*case output:
             send(format("~\"%s\"\n", formatCString( msg. )));
             break;*/
