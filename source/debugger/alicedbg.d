@@ -3,12 +3,12 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module debuggers.alicedbg;
+module debugger.alicedbg;
 
 import std.string : toStringz, fromStringz;
 import logging;
-import debuggers.base;
-import adapters.base;
+import debugger.base;
+import adapter.base;
 import adbg.debugger;
 import adbg.process.exception;
 import adbg.error;

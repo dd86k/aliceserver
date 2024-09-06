@@ -9,14 +9,14 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapters.dap;
+module adapter.dap;
 
 import std.json;
 import std.string : chompPrefix;
 import std.conv : text;
 import std.utf : validate;
-import adapters.base;
-import utils.json;
+import adapter.base;
+import util.json;
 import ddlogger;
 
 // NOTE: DAP notes

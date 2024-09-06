@@ -9,7 +9,7 @@ import std.stdio;
 import std.getopt;
 import core.stdc.stdlib : exit;
 import config, server, logging;
-import adapters, debuggers, transports;
+import adapter, debugger, transport;
 import adbg.platform : ADBG_VERSION;
 
 template VER(uint ver)

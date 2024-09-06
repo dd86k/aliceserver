@@ -9,9 +9,9 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapters.mi;
+module adapter.mi;
 
-import adapters.base;
+import adapter.base;
 import config;
 import logging;
 import server : AdapterType, targetExec, targetExecArgs;
@@ -22,8 +22,8 @@ import std.file : chdir;
 import std.format : format;
 import std.string : indexOf;
 import std.outbuffer : OutBuffer;
-import utils.shell : shellArgs;
-import utils.mi;
+import util.shell : shellArgs;
+import util.mi;
 
 // NOTE: GDB/MI versions and commmands
 //

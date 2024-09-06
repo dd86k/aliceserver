@@ -9,7 +9,7 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-import adapters, debuggers;
+import adapter, debugger;
 import ddlogger;
 
 // TODO: Accept multi-session

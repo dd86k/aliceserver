@@ -3,12 +3,12 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module transports.httpstdio;
+module transport.httpstdio;
 
 import std.stdio;
 import std.conv;
 import std.string;
-import transports.base;
+import transport.base;
 import logging;
 
 /// Implements the HTTP transport, due to DAP.

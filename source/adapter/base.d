@@ -3,10 +3,10 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapters.base;
+module adapter.base;
 
-public import transports.base : ITransport;
-import debuggers.base;
+public import transport.base : ITransport;
+import debugger.base;
 import core.thread : Thread;
 import std.datetime : Duration, dur;
 import ddlogger;
