@@ -15,7 +15,7 @@ import std.json;
 import std.string : chompPrefix;
 import std.conv : text;
 import std.utf : validate;
-import adapter.base;
+import adapter.base, adapter.types;
 import util.json;
 import ddlogger;
 

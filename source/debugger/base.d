@@ -5,7 +5,7 @@
 /// License: BSD-3-Clause-Clear
 module debugger.base;
 
-import adapter.base : AdapterEvent;
+import adapter.types : AdapterEvent;
 
 // TODO: BridgeDebugger
 //       Basically just passes DAP/MI requests to debugger via transport.

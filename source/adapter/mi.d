@@ -11,7 +11,7 @@
 /// License: BSD-3-Clause-Clear
 module adapter.mi;
 
-import adapter.base;
+import adapter.base, adapter.types;
 import config;
 import logging;
 import server : AdapterType, targetExec, targetExecArgs;
