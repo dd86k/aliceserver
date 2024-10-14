@@ -96,15 +96,14 @@ void startServer(Adapter adapter) // Handles adapter
     
     // Get requests
     logTrace("Listening to %s via %s...", adapter.transportName(), adapter.name());
-    AdapterRequestType debuggerType;
-    //Tid debuggerTid;
     Thread eventThread = new Thread({
         Levent:
             AdapterEvent event = debugger.wait();
             adapter.event(event);
             
             switch (event.type) with (AdapterEventType) {
-            case stopped: return;
+            case exited: // Process exited
+                return;
             default: goto Levent;
             }
         });
@@ -119,6 +118,7 @@ Lrequest:
     }
     
     // Process request depending on type
+    AdapterRequestType debuggerType;
     switch (request.type) {
     // Launch process with debugger
     case AdapterRequestType.launch:
@@ -128,26 +128,12 @@ Lrequest:
             goto Lrequest;
         }
         
-        try with (request.launchOptions) debugger.launch(path, null, null);
+        with (request.launchOptions) try debugger.launch(path, null, null);
         catch (Exception ex)
         {
             adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
-        
-        /*
-        debuggerTid = spawn(&startDebugger, thisTid,
-            DebuggerStartOptions(request.launchOptions.path),
-            (AdapterEvent event) {
-                adapter.event(event);
-            });
-        MsgReply reply = receiveOnly!MsgReply;
-        if (reply.message)
-        {
-            adapter.reply(AdapterError(reply.message));
-            goto Lrequest;
-        }
-        */
         
         adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.launch;
@@ -160,32 +146,18 @@ Lrequest:
             goto Lrequest;
         }
         
-        try with (request.attachOptions) debugger.attach(pid);
+        with (request.attachOptions) try debugger.attach(pid);
         catch (Exception ex)
         {
             adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
         
-        /*
-        debuggerTid = spawn(&startDebugger, thisTid,
-            DebuggerStartOptions(request.attachOptions.pid),
-            (AdapterEvent event) {
-                adapter.event(event);
-            });
-        
-        MsgReply reply = receiveOnly!MsgReply;
-        if (reply.message)
-        {
-            adapter.reply(AdapterError(reply.message));
-            goto Lrequest;
-        }
-        */
-        
         adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.attach;
         break;
-    case AdapterRequestType.go:
+    // Continue
+    case AdapterRequestType.continue_:
         adapter.reply(AdapterReply());
         eventThread.start();
         break;
@@ -197,21 +169,16 @@ Lrequest:
             goto Lrequest;
         }
         
-        //debugger.detach();
-        
-        /*
-        send(debuggerTid, RequestDetach());
-        
-        MsgReply reply = receiveOnly!MsgReply;
-        if (reply.message)
+        try debugger.detach();
+        catch (Exception ex)
         {
-            adapter.reply(AdapterError(reply.message));
+            adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
-        */
         
-        adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.unknown;
+        adapter.reply(AdapterReply());
+        adapter.close();
         break;
     // Terminate process
     case AdapterRequestType.terminate:
@@ -221,46 +188,30 @@ Lrequest:
             goto Lrequest;
         }
         
-        /*
-        send(debuggerTid, RequestTerminate());
-        
-        MsgReply reply = receiveOnly!MsgReply;
-        if (reply.message)
+        try debugger.terminate();
+        catch (Exception ex)
         {
-            adapter.reply(AdapterError(reply.message));
+            adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
-        */
         
-        adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.unknown;
+        adapter.reply(AdapterReply());
+        adapter.close();
         break;
     // Either detaches or terminates process depending how the debugger is attached
     case AdapterRequestType.close:
-        /*
-        static immutable Duration quitTimeout = 10.seconds;
         switch (debuggerType) {
-        case RequestType.launch: // if was launched
-            send(debuggerTid, RequestTerminate());
-            break;
-        case RequestType.attach: // if was attached
-            send(debuggerTid, RequestDetach());
-            break;
-        default:
+        case AdapterRequestType.launch: // was launched
+            logTrace("Close -> Terminate");
+            goto case AdapterRequestType.terminate;
+        case AdapterRequestType.attach: // was attached
+            logTrace("Close -> Detach");
+            goto case AdapterRequestType.detach;
+        default: // no idea
+            logWarn("Debugger was requested to close, but clueless of state");
         }
-        
-        if (debuggerType)
-        {
-            logTrace("Waiting for debugger to quit (timeout: %s)...", quitTimeout);
-            if (receiveTimeout(quitTimeout, (MsgReply reply) {}) == false)
-                logWarn("Debugger timeout, quitting anyway");
-        }
-        */
-        
-        // TODO: Multi-session: Return to listen to requests if adapterCount > 0
-        //       And reset debuggerType.
-        adapter.close();
-        return;
+        break;
     default:
         string e = format("Request not implemented: %s", request.type);
         logError(e);
@@ -268,121 +219,4 @@ Lrequest:
     }
     
     goto Lrequest;
-}
-
-private:
-
-// NOTE: spawn() does not allow thread-local data, like object instances
-
-//
-// Messages
-//
-
-struct MsgReply
-{
-    string message;
-}
-
-struct RequestContinue {}
-struct RequestDetach {}
-struct RequestTerminate {}
-
-//TODO: Add configuration settings (mainly breakpoints) before starting
-struct DebuggerStartOptions
-{
-    this(int pid)
-    {
-        type = AdapterRequestType.attach;
-        attachOptions.pid = pid;
-    }
-    
-    this(string path)
-    {
-        type = AdapterRequestType.launch;
-        launchOptions.path = path;
-    }
-    
-    AdapterRequestType type;
-    union
-    {
-        struct DebuggerStartAttachOptions
-        {
-            int pid;
-        }
-        DebuggerStartAttachOptions attachOptions;
-        struct DebuggerStartLaunchOptions
-        {
-            string path;
-        }
-        DebuggerStartLaunchOptions launchOptions;
-    }
-}
-
-// Start a new debugger instance.
-//
-// The only message this is allowed to send is MsgReply.
-void startDebugger(Tid parent, DebuggerStartOptions start, void delegate(AdapterEvent) sendEvent)
-{
-    // Select debugger
-    IDebugger debugger = new AliceDebugger();
-    
-    // Hook debugger to process
-    switch (start.type) with (AdapterRequestType) {
-    case launch:
-        try debugger.launch(start.launchOptions.path, null, null);
-        catch (Exception ex)
-        {
-            send(parent, MsgReply(ex.msg));
-            return;
-        }
-        
-        logInfo("Debugger launched '%s'", start.launchOptions.path);
-        send(parent, MsgReply());
-        break;
-    case attach:
-        try debugger.attach(start.attachOptions.pid);
-        catch (Exception ex)
-        {
-            send(parent, MsgReply(ex.msg));
-            return;
-        }
-        
-        logInfo("Debugger attached to process %d", start.attachOptions.pid);
-        send(parent, MsgReply());
-        break;
-    default:
-        string e = format("Unimplemented start request: %s", start.type);
-        logCritical(e);
-        send(parent, MsgReply(e));
-        return;
-    }
-    
-    // Now accepting requests
-    bool active = true;
-    while (active) receive(
-        (RequestContinue req) {
-            AdapterEvent event = debugger.wait();
-            sendEvent(event);
-        },
-        (RequestDetach req) {
-            logTrace("Debugger: Detaching debugger from process...");
-            /*
-            try debugger.detach();
-            catch (Exception ex)
-            {
-                send(parent, MsgReply(ex.msg));
-                return;
-            }
-            send(parent, MsgReply());
-            */
-            active = false;
-        },
-        (RequestTerminate req) {
-            logTrace("Debugger: Terminating process...");
-            active = false;
-        }
-    );
-    
-    // Send terminating message
-    send(parent, MsgReply());
 }

@@ -12,6 +12,9 @@ import config, server, logging;
 import adapter, debugger, transport;
 import adbg.platform : ADBG_VERSION;
 
+// TODO: Attach available adapter types
+//       e.g., register them before calling getopt or statically in global memory
+
 template VER(uint ver)
 {
     enum VER =

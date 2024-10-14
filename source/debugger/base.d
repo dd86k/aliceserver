@@ -18,8 +18,25 @@ struct ThreadInfo
 
 interface IDebugger
 {
+    /// Launch a new process with the debugger.
+    /// Params:
+    ///     exec = Path to executable.
+    ///     args = Executable arguments.
+    ///     cwd = Working directory for executable.
     void launch(string exec, string[] args, string cwd);
+    /// Attach to process.
+    /// Params: pid = Process ID.
     void attach(int pid);
     
+    /// Continue debugged process.
+    void continue_();
+    
+    /// Terminate process.
+    void terminate();
+    /// Detach debugger from process.
+    void detach();
+    
+    /// Wait for debugger events.
+    /// Returns: Debugger event.
     AdapterEvent wait();
 }

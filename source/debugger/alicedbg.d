@@ -16,29 +16,59 @@ import adbg.error;
 // TODO: Could be possible to make a "AlicedbgRemote" class for remote sessions
 //       Could support multiple protocols (SSH, custom, etc.)
 
+class AlicedbgException : Exception
+{
+    this()
+    {
+        super(cast(string)fromStringz(adbg_error_message()));
+    }
+}
+
 class AliceDebugger : IDebugger
 {
     void launch(string exec, string[] args, string cwd)
     {
         process = adbg_debugger_spawn(exec.toStringz(), 0);
         if (process == null)
-            throw new Exception(adbgErrorMessage());
+            throw new AlicedbgException();
     }
     
     void attach(int pid)
     {
         process = adbg_debugger_attach(pid, 0);
         if (process == null)
-            throw new Exception(adbgErrorMessage());
+            throw new AlicedbgException();
+    }
+    
+    void continue_()
+    {
+        enforceActiveProcess();
+        if (adbg_debugger_continue(process))
+            throw new AlicedbgException();
+    }
+    
+    void terminate()
+    {
+        enforceActiveProcess();
+        if (adbg_debugger_terminate(process))
+            throw new AlicedbgException();
+        process = null;
+    }
+    
+    void detach()
+    {
+        enforceActiveProcess();
+        if (adbg_debugger_detach(process))
+            throw new AlicedbgException();
+        process = null;
     }
     
     AdapterEvent wait()
     {
-        if (process == null)
-            throw new Exception("No process instance.");
+        enforceActiveProcess();
         AdapterEvent event = void;
-        if (adbg_debugger_wait(process, &handleAdbg, &event))
-            throw new Exception(adbgErrorMessage());
+        if (adbg_debugger_wait(process, &handleAdbgEvent, &event))
+            throw new AlicedbgException();
         return event;
     }
     
@@ -46,56 +76,75 @@ private:
     /// Current process.
     adbg_process_t *process;
     
-    string adbgErrorMessage()
+    // Actively check if we have an active process.
+    // Otherwise, Alicedbg would complain about an invalid handle, which
+    // could be confusing.
+    void enforceActiveProcess()
     {
-        return cast(string)fromStringz(adbg_error_message());
+        if (process == null)
+            throw new Exception("No process attached.");
     }
 }
 
-private
-string adbgExceptionName(AdbgException ex)
+private:
+
+// Get a short text name from an Alicedbg exception
+string adbgExceptionName(adbg_exception_t *ex)
 {
-    switch (ex) with (AdbgException) {
+    switch (ex.type) with (AdbgException) {
     case Exit:              return "Exit";
     case Breakpoint:        return "Breakpoint";
     case Step:              return "Step";
     case Fault:             return "Fault";
-    case BoundExceeded:     return "BoundExceeded";
+    case BoundExceeded:     return "Bound Exceeded";
     case Misalignment:      return "Misalignment";
-    case IllegalInstruction:return "IllegalInstruction";
-    case ZeroDivision:      return "ZeroDivision";
-    case PageError:         return "PageError";
-    case IntOverflow:       return "IntOverflow";
-    case StackOverflow:     return "StackOverflow";
-    case PrivilegedOpcode:  return "PrivilegedOpcode";
-    case FPUDenormal:       return "FPUDenormal";
-    case FPUZeroDivision:   return "FPUZeroDivision";
-    case FPUInexact:        return "FPUInexact";
-    case FPUIllegal:        return "FPUIllegal";
-    case FPUOverflow:       return "FPUOverflow";
-    case FPUUnderflow:      return "FPUUnderflow";
-    case FPUStackOverflow:  return "FPUStackOverflow";
+    case IllegalInstruction:return "Illegal Instruction";
+    case ZeroDivision:      return "Zero Division";
+    case PageError:         return "Page Error";
+    case IntOverflow:       return "Int Overflow";
+    case StackOverflow:     return "Stack Overflow";
+    case PrivilegedOpcode:  return "Privileged Opcode";
+    case FPUDenormal:       return "FPU Denormal";
+    case FPUZeroDivision:   return "FPU ZeroDivision";
+    case FPUInexact:        return "FPU Inexact";
+    case FPUIllegal:        return "FPU Illegal";
+    case FPUOverflow:       return "FPU Overflow";
+    case FPUUnderflow:      return "FPU Underflow";
+    case FPUStackOverflow:  return "FPU StackOverflow";
     case Disposition:       return "Disposition";
-    case NoContinue:        return "NoContinue";
+    case NoContinue:        return "No Continue";
     default:                return null;
     }
 }
 
+// Translate Alicedbg exception type to adapter stop reason
+AdapterEventStoppedReason adbgExceptionReason(adbg_exception_t *ex) {
+    switch (ex.type) with (AdbgException) {
+    case Breakpoint:    return AdapterEventStoppedReason.breakpoint;
+    case Step:  return AdapterEventStoppedReason.step;
+    default:    return AdapterEventStoppedReason.exception;
+    }
+}
+
+// Handle Alicedbg events
 extern (C)
-private
-void handleAdbg(adbg_process_t *proc, int type, void *edata, void *udata)
+void handleAdbgEvent(adbg_process_t *proc, int type, void *edata, void *udata)
 {
     AdapterEvent *event = cast(AdapterEvent*)udata;
-    
     switch (type) {
     case AdbgEvent.exception:
-        adbg_exception_t *ex = cast(adbg_exception_t*)edata;
-    
         event.type = AdapterEventType.stopped;
-        event.stopped.reason = AdapterEventStoppedReason.exception;
+        adbg_exception_t *ex = cast(adbg_exception_t*)edata;
+        event.stopped.reason = adbgExceptionReason(ex);
+        event.stopped.text = adbgExceptionName(ex);
         event.stopped.description = "Exception";
-        event.stopped.threadId = ex.tid;
-        event.stopped.text = adbgExceptionName(ex.type);
+        // TODO: Assign Thread ID once Alicedbg gets TID association
+        event.stopped.threadId = 0;
+        return;
+    case AdbgEvent.processExit:
+        event.type = AdapterEventType.exited;
+        int *code = cast(int*)edata;
+        event.exited.code = *code;
         return;
     default:
         // ...

@@ -24,7 +24,7 @@ enum AdapterRequestType
     currentWorkingDirectory,
     
     /// Continue
-    go,
+    continue_,
     
     /// If attached, detaches the debuggee. No effect if launched.
     detach,
@@ -71,6 +71,12 @@ struct AdapterRequest
             string path;
         }
         RequestLaunchOptions launchOptions;
+        
+        struct RequestContinueOptions
+        {
+            int tid; /// Thread ID
+        }
+        RequestContinueOptions continueOptions;
         
         struct RequestCloseOptions
         {
@@ -140,20 +146,28 @@ enum AdapterEventType
     thread,
 }
 
-/*    reason: 'step' | 'breakpoint' | 'exception' | 'pause' | 'entry' | 'goto'
-        | 'function breakpoint' | 'data breakpoint' | 'instruction breakpoint'
-        | string;*/
+// DAP: 'step', 'breakpoint', 'exception', 'pause', 'entry', 'goto'
+//      'function breakpoint', 'data breakpoint', 'instruction breakpoint', etc.
 enum AdapterEventStoppedReason
 {
+    /// Source or instruction step.
     step,
+    /// Source breakpoint.
     breakpoint,
+    /// Exception.
     exception,
+    /// Process paused.
     pause,
+    /// Function or scope entry.
     entry,
+    /// Source or instruction goto.
     goto_,
-    function_breakpoint,
-    data_breakpoint,
-    instruction_breakpoint,
+    /// Function breakpoint. (function entry breakpoint?)
+    functionBreakpoint,
+    /// Data watcher breakpoint.
+    dataBreakpoint,
+    /// Instruction-level breakpoint.
+    instructionBreakpoint,
 }
 
 // DAP has these output message types:
@@ -181,15 +195,32 @@ struct AdapterEvent
     {
         struct AdapterEventStopped
         {
+            /// The reason for the event.
+            /// 
+            /// DAP:
+            /// For backward compatibility this string is shown in the UI if the
+            /// `description` attribute is missing (but it must not be translated).
+            /// Values: 'step', 'breakpoint', 'exception', 'pause', 'entry', 'goto',
+            /// 'function breakpoint', 'data breakpoint', 'instruction breakpoint', etc.
             AdapterEventStoppedReason reason;
+            /// Thread ID that caused the stop.
             int threadId;
+            /// DAP:
             /// The full reason for the event. E.g. 'Paused on exception'.
             /// This string is shown in the UI as is and can be translated.
             string description;
+            /// DAP:
             /// Additional information. E.g. If reason is `exception`,
             /// text contains the exception name. This string is shown in the UI.
             string text;
         }
         AdapterEventStopped stopped;
+        
+        struct AdapterEventExited
+        {
+            /// The exit code returned from the debugged process.
+            int code;
+        }
+        AdapterEventExited exited;
     }
 }

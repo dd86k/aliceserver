@@ -220,7 +220,7 @@ class MIAdapter : Adapter
             goto Lread;
         // Resume process execution.
         case "exec-continue":
-            request.type = AdapterRequestType.go;
+            request.type = AdapterRequestType.continue_;
             return request;
         // Terminal process.
         case "exec-abort":
