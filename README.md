@@ -7,10 +7,10 @@ Major work in progress! Don't expect it to replace GDB or LLDB any time soon.
 
 Why?
 
-- lldb-mi is generally not available as prebuilt binaries anymore after LLDB 9.0.1.
+- lldb-mi is no longer available as a prebuilt binary after LLDB 9.0.1.
 - lldb-vscode/lldb-dap requires Python.
 - gdb-mi is fine, but GDC is generally unavailable on Windows.
-- gdb-dap uses and requires Python.
+- gdb-dap is written in Python and thus requires it.
 - mago-mi is only available for Windows on x86/AMD64 platforms.
 - Making this server provides a better direction for future Alicedbg features.
 
@@ -19,7 +19,7 @@ Why?
 ## DAP
 
 [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
-is a HTTP-like protocol using JSON that was introduced in
+is a HTTP-like JSON protocol that was introduced in
 [vscode-debugadapter-node](https://github.com/microsoft/vscode-debugadapter-node)
 and was readapted as a
 [standalone protocol](https://github.com/microsoft/debug-adapter-protocol)
@@ -41,21 +41,18 @@ Aliceserver does not yet support multi-session.
 
 By default, single-session mode is used. A client may request to initiate a new
 debugging session by emiting the `startDebugging` request, which turns the server
-configuration into a multi-session mode.
+configuration into a multi-session mode. Request management is performed by clients
+tracking request IDs themselves.
 
 In either modes, the client spawns the server and uses the standard streams (stdio)
 to communicate with the server.
 
-Messages are encoded as HTTP messages using JSON for its body, where the header and body
-of the message are separated by two HTTP newlines ("\r\n").
+Messages are encoded as HTTP messages.
 
 Currently, there is only one header field, `Content-Length`, that determines the
-length of the message. This includes requests, replies, and events. This field is
-read as an Integer (32-bit integer number, `int`).
+length of the message (payload). This field is read as an Integer.
 
-This is important since streams are of inderminate sizes, unlike TCP packets.
-
-The body of the message is encoded using [JSON](https://json.org).
+The body (payload) is assumed to be encoded as [JSON](https://json.org).
 
 A typical request may look like this:
 
@@ -128,7 +125,7 @@ Command support:
 | `stepIn` | ❌ | |
 | `stepInTargets` | ❌ | |
 | `stepOut` | ❌ | |
-| `terminate` | ❌ | |
+| `terminate` | ✔️ | |
 | `terminateThreads` | ❌ | |
 | `threads` | ❌ | |
 | `variables` | ❌ | |
@@ -141,7 +138,7 @@ Command support:
 | `breakpoint` | ❌ | |
 | `capabilities` | ❌ | |
 | `continued` | ❌ | |
-| `exited` | ❌ | |
+| `exited` | ✔️ | |
 | `initialized` | ❌ | |
 | `invalidated` | ❌ | |
 | `loadedSource` | ❌ | |
@@ -202,7 +199,7 @@ using c-string formatting.
 | Status | `+` | Async status change. |
 | Console Stream | `~` | Console messages intended to be printed. |
 | Target Stream | `@` | Program output when truly asynchronous, for remote targets. |
-| Log Stream | `&` | GDB internal messages. |
+| Log Stream | `&` | Internal debugger messages. |
 
 Some commands may start with `-`.
 
@@ -222,7 +219,12 @@ NOTE: Command focus is on GDB, lldb-mi commands may work.
 
 ### Supported Events
 
-TODO.
+| Request | Details | Supported? | Comments |
+|---|---|---|---|
+| Continued | | ❌ | |
+| Exited | Reasons: `exited`, `exited-normally` | ✔️ | |
+| Output | | ❌ | |
+| Stopped | | ❌ | |
 
 # Licensing
 
