@@ -31,7 +31,7 @@ enum AdapterRequestType
     /// Kill process.
     terminate,
     
-    /// Close debugger and closes debuggee if running.
+    /// Close debugger and close debuggee if still running.
     close,
 }
 
@@ -39,16 +39,6 @@ enum AdapterRequestType
 enum OptionType
 {
     reserved
-}
-
-/// What should the server do on a closing request?
-///
-/// Used internally.
-enum CloseAction
-{
-    nothing,
-    terminate,
-    detach,
 }
 
 struct AdapterRequest
@@ -80,7 +70,7 @@ struct AdapterRequest
         
         struct RequestCloseOptions
         {
-            CloseAction action;
+            bool terminate; /// Optional: If launched, terminate process.
         }
         RequestCloseOptions closeOptions;
     }

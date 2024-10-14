@@ -7,9 +7,6 @@ module debugger.base;
 
 import adapter.types : AdapterEvent;
 
-// TODO: BridgeDebugger
-//       Basically just passes DAP/MI requests to debugger via transport.
-
 struct ThreadInfo
 {
     int id;

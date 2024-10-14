@@ -42,6 +42,31 @@ import ddlogger;
 //       multi-sessions.
 
 private
+string eventStoppedReasonString(AdapterEventStoppedReason reason)
+{
+    final switch (reason) with (AdapterEventStoppedReason) {
+    case step:
+        return "step";
+    case breakpoint:
+        return "breakpoint";
+    case exception:
+        return "exception";
+    case pause:
+        return "pause";
+    case entry:
+        return "entry";
+    case goto_:
+        return "goto";
+    case functionBreakpoint:
+        return "function breakpoint";
+    case dataBreakpoint:
+        return "data breakpoint";
+    case instructionBreakpoint:
+        return "instruction breakpoint";
+    }
+}
+
+private
 struct Capability
 {
     string name;
@@ -165,39 +190,43 @@ class DAPAdapter : Adapter
             send(jconfigdone);
             goto Lread;
         case "launch":
-            processCreation = request.type = AdapterRequestType.launch;
+            request.type = AdapterRequestType.launch;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "path", request.launchOptions.path);
             break;
         case "attach":
-            processCreation = request.type = AdapterRequestType.attach;
+            request.type = AdapterRequestType.attach;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "pid", request.attachOptions.pid);
             break;
+        case "continue":
+            request.type = AdapterRequestType.continue_;
+            JSONValue jargs;
+            required(j, "arguments", jargs);
+            required(jargs, "threadId", request.continueOptions.tid);
+            break;
         case "disconnect":
-            // If launched, close debuggee.
-            // If attached, detach. Unless terminateDebuggee:true specified.
+            // "the debug adapter must terminate the debuggee if it was started
+            // with the launch request. If an attach request was used to connect
+            // to the debuggee, then the debug adapter must not terminate the debuggee."
             request.type = AdapterRequestType.close;
-            switch (processCreation) {
-            case AdapterRequestType.attach:
-                if (const(JSONValue) *pjdisconnect = "arguments" in j)
-                {
-                    bool kill; // Defaults to false
-                    optional(pjdisconnect, "terminateDebuggee", kill);
-                    with (CloseAction) request.closeOptions.action = kill ? terminate : detach;
-                }
-                else
-                {
-                    request.closeOptions.action = CloseAction.detach;
-                }
-                break;
-            case AdapterRequestType.launch:
-                request.closeOptions.action = CloseAction.terminate;
-                break;
-            default:
-                request.closeOptions.action = CloseAction.nothing;
+            if (const(JSONValue) *pjdisconnect = "arguments" in j)
+            {
+                // "Indicates whether the debuggee should be terminated when the
+                // debugger is disconnected.
+                // If unspecified, the debug adapter is free to do whatever it
+                // thinks is best. The attribute is only honored by a debug
+                // adapter if the corresponding capability `supportTerminateDebuggee` is true."
+                optional(pjdisconnect, "terminateDebuggee", request.closeOptions.terminate);
+                // "Indicates whether the debuggee should stay suspended when the
+                // debugger is disconnected.
+                // If unspecified, the debuggee should resume execution. The
+                // attribute is only honored by a debug adapter if the corresponding
+                // capability `supportSuspendDebuggee` is true."
+                // TODO: bool suspendDebuggee (optional)
+                // TODO: bool restart (optional)
             }
             break;
         default:
@@ -284,6 +313,26 @@ class DAPAdapter : Adapter
                 "": ""
             ];
             break;
+        case stopped:
+            string reason = void;
+            final switch (event.stopped.reason) with (AdapterEventStoppedReason) {
+            case step:          reason =  "step"; break;
+            case breakpoint:    reason =  "breakpoint"; break;
+            case exception:     reason =  "exception"; break;
+            case pause:         reason =  "pause"; break;
+            case entry:         reason =  "entry"; break;
+            case goto_:         reason =  "goto"; break;
+            case functionBreakpoint:    reason =  "function breakpoint"; break;
+            case dataBreakpoint:        reason =  "data breakpoint"; break;
+            case instructionBreakpoint: reason =  "instruction breakpoint"; break;
+            }
+            j["reason"] = reason;
+            j["description"] = event.stopped.description;
+            //j["threadId"] = reason;
+            break;
+        case exited:
+            j["exitCode"] = event.exited.code;
+            break;
         default:
             throw new Exception(text("Event unimplemented: ", event.type));
         }
@@ -311,7 +360,6 @@ private:
     // TODO: Consider updating seq atomically
     /// Server sequencial ID.
     int current_seq = 1;
-    AdapterRequestType processCreation;
     
     struct ClientCapabilities
     {

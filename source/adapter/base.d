@@ -28,13 +28,17 @@ abstract class Adapter
         return transport.name();
     }
     
-    // Send data to client.
+    // Send a message to client.
     void send(ubyte[] data)
     {
         // TODO: Consider mutex over transport *if* data starts getting mangled
+        //       Under Phobos, standard streams have locking implemented, but
+        //       when adapters starts with other transport medias, it may be
+        //       interesting to use a mutex.
         logTrace("Sending %u bytes", data.length);
         transport.send(data);
     }
+    // Send a message to client.
     void send(const(char)[] data)
     {
         send(cast(ubyte[])data);

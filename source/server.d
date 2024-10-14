@@ -122,12 +122,6 @@ Lrequest:
     switch (request.type) {
     // Launch process with debugger
     case AdapterRequestType.launch:
-        if (debuggerType)
-        {
-            adapter.reply(AdapterError(messageDebuggerActive));
-            goto Lrequest;
-        }
-        
         with (request.launchOptions) try debugger.launch(path, null, null);
         catch (Exception ex)
         {
@@ -140,12 +134,6 @@ Lrequest:
         break;
     // Attach debugger to process
     case AdapterRequestType.attach:
-        if (debuggerType)
-        {
-            adapter.reply(AdapterError(messageDebuggerActive));
-            goto Lrequest;
-        }
-        
         with (request.attachOptions) try debugger.attach(pid);
         catch (Exception ex)
         {
@@ -158,17 +146,18 @@ Lrequest:
         break;
     // Continue
     case AdapterRequestType.continue_:
+        try debugger.continue_();
+        catch (Exception ex)
+        {
+            adapter.reply(AdapterError(ex.msg));
+            goto Lrequest;
+        }
+        
         adapter.reply(AdapterReply());
         eventThread.start();
         break;
     // Detach debugger from process
     case AdapterRequestType.detach:
-        if (debuggerType == AdapterRequestType.unknown) // Nothing to detach from
-        {
-            adapter.reply(AdapterError(messageDebuggerUnactive));
-            goto Lrequest;
-        }
-        
         try debugger.detach();
         catch (Exception ex)
         {
@@ -182,12 +171,6 @@ Lrequest:
         break;
     // Terminate process
     case AdapterRequestType.terminate:
-        if (debuggerType == AdapterRequestType.unknown) // Nothing to terminate
-        {
-            adapter.reply(AdapterError(messageDebuggerUnactive));
-            goto Lrequest;
-        }
-        
         try debugger.terminate();
         catch (Exception ex)
         {
