@@ -16,6 +16,44 @@ Why?
 
 # Implementation Details
 
+```text
++------------------------------+
+| Aliceserver                  |
+| +--------------------------+ |
+| |     Debugger server      | |
+| +--------------------------+ |
+|      ^               ^       |
+|      v               |       |
+| +-----------+        |       |
+| | Adapter   |        v       |
+| +-----------+   +----------+ |
+| | Transport |   | Debugger | |
++-+-----------+---+----------+-+
+    ^                  ^
+    v                  v
++~~~~~~~~~+   +~~~~~~~~~~~~~~~~+
+| Client  |   | Target process |
++~~~~~~~~~+   +~~~~~~~~~~~~~~~~+
+```
+
+Aliceserver is implemented using an Object-Oriented Programming model.
+
+- Debugger: Used to interface a debugger that manipulates processes.
+  - Each debugger classes inherit `debugger.base.IDebugger`.
+  - AliceDebugger: Implements a debugger endpoint using Alicedbg.
+- Transport: Used to interface a client and an adapter.
+  - Each transport classes inherit `transport.base.ITransport`.
+  - `StdioTransport`: Implements a transport using standard streams.
+  - `HTTPStdioTransport`: Implements a transport using standard streams formatted as HTTP.
+     The payload is given to the adapter to process.
+- Adapter: Used to interface transports and server requests and events.
+  - Each adapter classes inherit `adapter.base.Adapter` and must be
+  constructed with a valid `ITransport` instance.
+  - `DAPAdapter`: Implements an adapter that interprets the Debug Adapter Protocol.
+    - Works with `HTTPStdioTransport`.
+  - `MIAdapter`: Implements an adapter that interprets GDB's Machine Interface.
+    - Works with `StdioTransport`.
+
 ## DAP
 
 [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
