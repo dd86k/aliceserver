@@ -5,6 +5,8 @@
 /// License: BSD-3-Clause-Clear
 module transport.base;
 
+// TODO: Consider moving whole transport folder into adapter
+
 interface ITransport
 {
     string name();

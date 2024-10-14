@@ -22,9 +22,6 @@ string[] shellArgs(string text)
     if (text == null || text.length == 0)
         return null;
     
-    // TODO: Redo function more elegantly
-    //       Could return both array and iterable struct
-    
     string[] args;  // new argument list
     size_t i;       // Current character index
     size_t start;   // start of argument

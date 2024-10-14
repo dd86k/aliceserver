@@ -16,7 +16,7 @@ import config;
 import logging;
 import server : AdapterType, targetExec, targetExecArgs;
 import std.array : replace;
-import std.ascii : isDigit;
+import std.ascii;
 import std.conv : to;
 import std.file : chdir;
 import std.format : format;
@@ -153,33 +153,23 @@ class MIAdapter : Adapter
         ubyte[] buffer = receive();
         string fullrequest = cast(immutable(char)[])buffer;
         
-        // Imitate GDB by send what we got
-        send(format(`&"%s"`~"\n", formatCString( fullrequest )));
+        // Parse request and imitate GDB
+        MIRequest command = parseMIRequest(fullrequest);
+        send(formatCString("&\"%s\"\n", command.line));
         
-        // Get arguments
-        string[] args = shellArgs( fullrequest );
-        if (args.length == 0)
+        // GDB behavior:
+        // - "":    valid
+        // - "-":   invalid (not found)
+        // - "22":  valid
+        // - "22-": invalid (not found)
+        // - "22 help": valid
+        if (command.name == "")
         {
-            send(msgDone);
-            send(gdbPrompt);
+            reply(AdapterReply());
             goto Lread;
         }
         
         request = AdapterRequest.init;
-        
-        // Commands can come in two flavors: Numbered and unnumbered
-        //
-        // Unnumbered is just "-file-exec-and-symbols", this is mostly expected
-        // for simple workloads, where we are expecting one process.
-        //
-        // Numbered has an request ID attached like "1-file-exec-and-symbols",
-        // this allows (assumingly) the control of multiple processes.
-        //
-        // Commands like "123e" will be parsed (by GDB) as id=123 command="e".
-        //
-        // On GDB, a number alone is a no-op, but a (seemingly) valid command,
-        // since it replies with `N^done\n` where N was the number input.
-        MICommand command = miParseCommand(args[0]);
         request.id = command.id;
         
         // TODO: Implement these commands
@@ -229,16 +219,16 @@ class MIAdapter : Adapter
         // attach PID
         // Attach debugger to process by its ID.
         case "target-attach", "attach":
-            if (args.length < 2)
+            if (command.args.length < 2)
             {
                 reply(AdapterError("Missing process-id argument."));
                 goto Lread;
             }
             
-            try request.attachOptions.pid = to!uint(args[1]);
+            try request.attachOptions.pid = to!uint(command.args[1]);
             catch (Exception ex)
             {
-                reply(AdapterError(format("Illegal process-id: '%s'.", args[1])));
+                reply(AdapterError(format("Illegal process-id: '%s'.", command.args[1])));
                 goto Lread;
             }
             
@@ -255,22 +245,22 @@ class MIAdapter : Adapter
         // target TYPE [OPTIONS]
         // Set target parameters.
         case "target":
-            if (args.length < 2)
+            if (command.args.length < 2)
             {
                 reply(AdapterError("Need target type"));
                 goto Lread;
             }
             
-            string targetType = args[1];
+            string targetType = command.args[1];
             switch (targetType) {
             case "exec":
-                if (args.length < 3)
+                if (command.args.length < 3)
                 {
                     reply(AdapterError("Need target executable path"));
                     goto Lread;
                 }
                 
-                targetExec( args[2].dup );
+                targetExec( command.args[2].dup );
                 reply(AdapterReply());
                 goto Lread;
             default:
@@ -280,33 +270,33 @@ class MIAdapter : Adapter
         // file-exec-and-symbols PATH
         // (gdb, lldb) Set target path and symbols as the same
         case "file-exec-and-symbols":
-            if (args.length < 2)
+            if (command.args.length < 2)
             {
                 reply(AdapterError("Need target executable path"));
                 goto Lread;
             }
             
-            targetExec( args[1].dup );
+            targetExec( command.args[1].dup );
             reply(AdapterReply());
             goto Lread;
         // -exec-arguments ARGS
         // Set target arguments.
         case "exec-arguments":
             // If arguments given, set, otherwise, clear.
-            targetExecArgs(args.length > 1 ? args[1..$].dup : null);
+            targetExecArgs(command.args.length > 1 ? command.args[1..$].dup : null);
             reply(AdapterReply());
             goto Lread;
         // -environment-cd PATH
         // Set debugger directory.
         case "environment-cd":
-            if (args.length < 2)
+            if (command.args.length < 2)
             {
                 reply(AdapterError("Missing PATH directory."));
                 goto Lread;
             }
             
             // NOTE: Ultimately, the server should be the one controlling cwd
-            try chdir(args[1]);
+            try chdir(command.args[1]);
             catch (Exception ex)
             {
                 reply(AdapterError(ex.msg));
@@ -320,13 +310,13 @@ class MIAdapter : Adapter
         // Without an argument, GDB shows everything as stream output and
         // quits without sending a reply nor the prompt.
         case "show":
-            if (args.length < 1)
+            if (command.args.length < 1)
             {
                 reply(AdapterReply());
                 goto Lread;
             }
             
-            string showCommand = args[1];
+            string showCommand = command.args[1];
             switch (showCommand) {
             case "version":
                 static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
@@ -339,14 +329,12 @@ class MIAdapter : Adapter
             
             reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
             goto Lread;
-        // -info-gdb-mi-command COMMAND
+        // TODO: -info-gdb-mi-command COMMAND
         // Check if command exists.
         //case "info-gdb-mi-command":
         //    goto Lread;
         // List debugger features
         // gdb 13.1 example: ^done,features=["example","python"]
-        // NOTE: GDB only accepts "-list-features", Native Debug sends "list-features"
-        //       Command parse removes it for convenience
         case "list-features":
             // See §27.23 GDB/MI Support Commands for list.
             send("^done,features=[]\n");
@@ -354,6 +342,9 @@ class MIAdapter : Adapter
             goto Lread;
         case "q", "quit", "gdb-exit":
             request.type = AdapterRequestType.close;
+            // NOTE: gdb-mi when attached does not terminate.
+            //       Therefore, the preference is not to terminate.
+            request.closeOptions.terminate = false;
             return request;
         // Ignore list
         case "gdb-set", "inferior-tty-set": goto Lread;
@@ -373,7 +364,8 @@ class MIAdapter : Adapter
         buffer.reserve(2048);
         
         // Attach token id to result record
-        if (request.id) buffer.writef("%u", request.id);
+        if (request.id)
+            buffer.writef("%u", request.id);
         
         // Some requests may emit different result words
         switch (request.type) {
@@ -393,32 +385,50 @@ class MIAdapter : Adapter
     void reply(AdapterError msg)
     {
         logError(msg.message);
-        // Example: ^error,msg="Undefined command: \"%s\"."
-        send(format("^error,msg=\"%s\"\n", formatCString( msg.message )));
+        string cmsg = formatCString( msg.message );
+        // ^error,msg="Undefined command: \"%s\"."\n
+        send(request.id ?
+            format("%d^error,msg=\"%s\"\n", request.id, cmsg) :
+            format("^error,msg=\"%s\"\n", cmsg)
+        );
         send(gdbPrompt);
     }
     
     override
     void event(AdapterEvent msg)
     {
-        // Examples:
-        // - *stopped,reason="exited-normally"
+        switch (msg.type) with (AdapterEventType) {
+        // - ~"Starting program: example.exe \n"
+        // - =library-loaded,id="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
+        //   target-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
+        //   host-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
+        //   symbols-loaded="0",
+        //   thread-group="i1",
+        //   ranges=[{from="0x00007ff8f8731000",to="0x00007ff8f8946628"}]
+        /*case output:
+            send(format("~\"%s\"\n", formatCString( msg. )));
+            break;*/
+        // - *running,thread-id="all"
+        case continued:
+            break;
         // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
         //   frame={addr="0x08048564",func="main",
         //   args=[{name="argc",value="1"},{name="argv",value="0xbfc4d4d4"}],
         //   file="myprog.c",fullname="/home/nickrob/myprog.c",line="68",
         //   arch="i386:x86_64"}
-        // - *stopped,reason="exited",exit-code="01"
-        // - *stopped,reason="exited-signalled",signal-name="SIGINT",
-        //   signal-meaning="Interrupt"
-        // - @Hello world!
-        // - ~"Message from debugger\n"
-        switch (msg.type) with (AdapterEventType) {
-        /*case output:
-            send(format("~\"%s\"\n", formatCString( msg. )));
-            break;*/
+        // - *stopped,reason="signal-received",signal-name="SIGSEGV",
+        //   signal-meaning="Segmentation fault",frame={addr="0x0000000000000000",
+        //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
         case stopped:
-            send("*stopped,reason=\"exited-normally\"\n");
+            break;
+        // - *stopped,reason="exited-normally"
+        // - *stopped,reason="exited",exit-code="01"
+        // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
+        case exited:
+            if (msg.exited.code)
+                send(format("*stopped,reason=\"exited\",exit-code=\"%d\"\n", msg.exited.code));
+            else
+                send("*stopped,reason=\"exited-normally\"\n");
             break;
         default:
             logWarn("Unimplemented event type: %s", msg.type);
@@ -462,22 +472,27 @@ unittest
 }
 
 private
-struct MICommand
+struct MIRequest
 {
-    string name;
-    int id;
+    uint id;        /// Request ID
+    string name;    /// Command name
+    string[] args;  /// Command arguments
+    
+    string line;    /// Full command line
 }
 
 /// Parse the command 
 // Throws: ConvOverflowException from `to` template
 private
-MICommand miParseCommand(string command)
+MIRequest parseMIRequest(string command)
 {
-    MICommand com = void;
+    MIRequest mi;
     
     // TODO: Background syntax
     //       "example&"
     //       bool background;
+    
+    // Skip space characters
     
     // Attempt to get ID from command
     // Examples:
@@ -494,33 +509,113 @@ MICommand miParseCommand(string command)
     // Parse id if there is one in the buffer
     if (i)
     {
-        com.id      = to!int(idbuf[0..i]);
-        com.name    = command[i..$];
-    }
-    else
-    {
-        com.id      = 0;
-        com.name    = command;
+        mi.id      = to!int(idbuf[0..i]);
+        command    = command[i..$];
     }
     
     // GDB/MI §27.23: "Note that the dash (-) starting all GDB/MI commands is
     //                 technically not part of the command name"
-    if (com.name[0] == '-')
-        com.name = com.name[1..$];
+    if (command.length && command[0] == '-')
+        command = command[1..$];
     
-    return com;
+    // Full command line excludes request id
+    mi.line = command;
+    
+    // Split arguments, if there are any
+    string[] args = shellArgs(command);
+    if (args)
+    {
+        mi.name = args[0];
+        mi.args = args[1..$];
+    }
+    else // Could not split arguments
+    {
+        mi.name = command;
+        mi.args = [];
+    }
+    
+    return mi;
 }
 unittest
 {
-    assert(miParseCommand("example").name == "example");
-    assert(miParseCommand("example").id   == 0);
+    MIRequest mi = parseMIRequest(`example`);
+    assert(mi.id   == 0);
+    assert(mi.name == "example");
+    assert(mi.args == []);
+    assert(mi.line == "example");
     
-    assert(miParseCommand("123example").name == "example");
-    assert(miParseCommand("123example").id   == 123);
+    mi = parseMIRequest(`-file-exec-and-symbols`);
+    assert(mi.id   == 0);
+    assert(mi.name == "file-exec-and-symbols");
+    assert(mi.args == []);
+    assert(mi.line == "file-exec-and-symbols");
     
-    assert(miParseCommand("-file-exec-and-symbols").name == "file-exec-and-symbols");
-    assert(miParseCommand("-file-exec-and-symbols").id   == 0);
+    mi = parseMIRequest(`123example`);
+    assert(mi.id   == 123);
+    assert(mi.name == "example");
+    assert(mi.args == []);
+    assert(mi.line == "example");
     
-    assert(miParseCommand("1-file-exec-and-symbols").name == "file-exec-and-symbols");
-    assert(miParseCommand("1-file-exec-and-symbols").id   == 1);
+    mi = parseMIRequest(`1-file-exec-and-symbols`);
+    assert(mi.id   == 1);
+    assert(mi.name == "file-exec-and-symbols");
+    assert(mi.args == []);
+    assert(mi.line == "file-exec-and-symbols");
+    
+    mi = parseMIRequest(`2-command argument`);
+    assert(mi.id   == 2);
+    assert(mi.name == "command");
+    assert(mi.args == [ "argument" ]);
+    assert(mi.line == "command argument");
+    
+    mi = parseMIRequest(`3-command argument "big argument"`);
+    assert(mi.id   == 3);
+    assert(mi.name == "command");
+    assert(mi.args == [ "argument", "big argument" ]);
+    assert(mi.line == `command argument "big argument"`);
+    
+    // Test malformed requests
+    
+    // NOTE: Supporting commands with whitespaces before the command name is not currently a priority
+    
+    mi = parseMIRequest(``);
+    assert(mi.id   == 0);
+    assert(mi.name == "");
+    assert(mi.args == []);
+    assert(mi.line == "");
+    
+    /*
+    mi = parseMIRequest(`    uh oh`);
+    assert(mi.id   == 0);
+    assert(mi.name == "uh");
+    assert(mi.args == [ "oh" ]);
+    assert(mi.line == "uh oh");
+    
+    mi = parseMIRequest(` -oh no`);
+    assert(mi.id   == 0);
+    assert(mi.name == "oh");
+    assert(mi.args == [ "no" ]);
+    assert(mi.line == "oh no");
+    
+    mi = parseMIRequest(`44- uh oh`);
+    assert(mi.id   == 44);
+    assert(mi.name == "");
+    assert(mi.args is null);
+    */
+    
+    mi = parseMIRequest(`-`);
+    assert(mi.id   == 0);
+    assert(mi.name == "");
+    assert(mi.args == []);
+    assert(mi.line == "");
+    
+    mi = parseMIRequest(`22`);
+    assert(mi.id   == 22);
+    assert(mi.name == "");
+    assert(mi.args is null);
+    
+    mi = parseMIRequest(`33-`);
+    assert(mi.id   == 33);
+    assert(mi.name == "");
+    assert(mi.args is null);
 }
