@@ -3,56 +3,77 @@
 Debugger server supporting the DAP and MI protocols using
 [Alicedbg](https://github.com/dd86k/alicedbg).
 
-Major work in progress! Don't expect it to replace GDB or LLDB any time soon.
+**Major work in progress!** Don't expect it to replace GDB or LLDB any time soon.
 
 Why?
 
 - lldb-mi is no longer available as a prebuilt binary after LLDB 9.0.1.
-- lldb-vscode/lldb-dap requires Python.
-- gdb-mi is fine, but GDC is generally unavailable on Windows.
+- lldb and variants (including lldb-vscode) all require the Python runtime.
+- gdb-mi is fine, but GDC is generally unavailable for Windows.
 - gdb-dap is written in Python and thus requires it.
-- mago-mi is only available for Windows on x86/AMD64 platforms.
-- Making this server provides a better direction for future Alicedbg features.
+- Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
+- Provides future directions for features in Alicedbg.
+
+Use cases:
+
+- Integrating your favorite text or code editor that implements a debugger UI
+- Automated debugging integration testing
 
 # Implementation Details
 
 ```text
-+------------------------------+
-| Aliceserver                  |
-| +--------------------------+ |
-| |     Debugger server      | |
-| +--------------------------+ |
-|      ^               ^       |
-|      v               |       |
-| +-----------+        |       |
-| | Adapter   |        v       |
-| +-----------+   +----------+ |
-| | Transport |   | Debugger | |
-+-+-----------+---+----------+-+
-    ^                  ^
-    v                  v
-+~~~~~~~~~+   +~~~~~~~~~~~~~~~~+
-| Client  |   | Target process |
-+~~~~~~~~~+   +~~~~~~~~~~~~~~~~+
++-------------------------------------------+
+| Aliceserver                               |
+| +---------------------------------------+ |
+| |           Debugger server             | |
+| +---------------------------------------+ |
+|      ^               ^            ^       |
+|      v               |            |       |
+| +-----------+        |            |       |
+| | Adapter   |        v            v       |
+| +-----------+   +----------+ +----------+ |
+| | Transport |   | Debugger | | Debugger | |
++-+-----------+---+----------+-+----------+-+
+       ^               ^            ^
+       v               v            v
+   +~~~~~~~~~+    +~~~~~~~~~+  +~~~~~~~~~+
+   | Client  |    | Process |  | Process |
+   +~~~~~~~~~+    +~~~~~~~~~+  +~~~~~~~~~+
 ```
 
 Aliceserver is implemented using an Object-Oriented Programming model.
 
-- Debugger: Used to interface a debugger that manipulates processes.
-  - Each debugger classes inherit `debugger.base.IDebugger`.
-  - AliceDebugger: Implements a debugger endpoint using Alicedbg.
-- Transport: Used to interface a client and an adapter.
-  - Each transport classes inherit `transport.base.ITransport`.
-  - `StdioTransport`: Implements a transport using standard streams.
-  - `HTTPStdioTransport`: Implements a transport using standard streams formatted as HTTP.
-     The payload is given to the adapter to process.
-- Adapter: Used to interface transports and server requests and events.
-  - Each adapter classes inherit `adapter.base.Adapter` and must be
-  constructed with a valid `ITransport` instance.
-  - `DAPAdapter`: Implements an adapter that interprets the Debug Adapter Protocol.
-    - Works with `HTTPStdioTransport`.
-  - `MIAdapter`: Implements an adapter that interprets GDB's Machine Interface.
-    - Works with `StdioTransport`.
+## Transports
+
+Each transport classes inherit `transport.base.ITransport`.
+
+Available transports:
+- `StdioTransport`: Implements a transport using standard streams.
+- `HTTPStdioTransport`: Implements a transport using standard streams formatted as HTTP.
+  The payload is given to the adapter to process.
+
+## Adapters
+
+Used to interface transports, translating requests and events.
+
+Each adapter classes inherit `adapter.base.Adapter` and must be
+constructed with a valid `ITransport` instance.
+
+Available adapters:
+- `DAPAdapter`: Implements an adapter that interprets the Debug Adapter Protocol.
+  - Works best with `HTTPStdioTransport`.
+- `MIAdapter`: Implements an adapter that interprets GDB's Machine Interface.
+  - Works best with `StdioTransport`.
+
+## Debuggers
+
+Used to interface a debugger that manipulates processes.
+
+Each debugger classes inherit `debugger.base.IDebugger`.
+
+Right now, only `AlicedbgDebugger` is available as a debugger.
+
+# Adapter Details
 
 ## DAP
 
@@ -68,7 +89,7 @@ details, which can be a little infuriating to work with.
 
 This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
-double-precision floating-point number (`double`, IEEE 754).
+double-precision floating-point number (IEEE 754 `double`).
 
 DAP is capable of initiating multiple debugging sessions, also known as a
 multi-session configuration
@@ -259,7 +280,7 @@ NOTE: Command focus is on GDB, lldb-mi commands may work.
 
 | Request | Details | Supported? | Comments |
 |---|---|---|---|
-| Continued | | ❌ | |
+| Continued | | ✔️ | |
 | Exited | Reasons: `exited`, `exited-normally` | ✔️ | |
 | Output | | ❌ | |
 | Stopped | | ❌ | |
