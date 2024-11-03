@@ -2,7 +2,7 @@ name: Test
 
 on: [ push, pull_request ]
 
-#TODO: Expand matrix to configs (with proper names)
+# TODO: Expand matrix to configs (with proper names)
 
 # Tests ensures the project builds and executes unittest.
 # The entry points are rather minimal.
@@ -10,13 +10,13 @@ jobs:
   Aliceserver:
     strategy:
       matrix:
-        os: [ ubuntu-20.04, ubuntu-22.04, windows-2019, windows-2022 ]
+        os: [ ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, windows-2019, windows-2022 ]
         dc: [ dmd-latest, ldc-latest ]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup D compiler
-      uses: dlang-community/setup-dlang@v1
+      uses: dlang-community/setup-dlang@v2
       with:
         compiler: ${{ matrix.dc }}
     - name: Test
