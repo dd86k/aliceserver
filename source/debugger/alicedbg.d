@@ -31,6 +31,7 @@ class AliceDebugger : IDebugger
         process = adbg_debugger_spawn(exec.toStringz(), 0);
         if (process == null)
             throw new AlicedbgException();
+        _configure();
     }
     
     void attach(int pid)
@@ -38,13 +39,31 @@ class AliceDebugger : IDebugger
         process = adbg_debugger_attach(pid, 0);
         if (process == null)
             throw new AlicedbgException();
+        _configure();
+    }
+    
+    private
+    void _configure()
+    {
+        adbg_debugger_on(process, AdbgEvent.exception, &adbgEventException);
+        adbg_debugger_on(process, AdbgEvent.processExit, &adbgEventExited);
+        adbg_debugger_on(process, AdbgEvent.processContinue, &adbgEventContinued);
+        adbg_debugger_udata(process, &event);
     }
     
     void continue_()
     {
         enforceActiveProcess();
-        if (adbg_debugger_continue(process))
-            throw new AlicedbgException();
+        // HACK: To allow continuing from a previous event
+        switch (event.type) {
+        case AdapterEventType.stopped:
+            if (adbg_debugger_continue(process, event.stopped.threadId))
+                throw new AlicedbgException();
+            break;
+        default:
+            throw new Exception("Not in a stopped state");
+        }
+        _configure();
     }
     
     void terminate()
@@ -67,7 +86,7 @@ class AliceDebugger : IDebugger
     {
         enforceActiveProcess();
         AdapterEvent event = void;
-        if (adbg_debugger_wait(process, &handleAdbgEvent, &event))
+        if (adbg_debugger_wait(process))
             throw new AlicedbgException();
         return event;
     }
@@ -75,6 +94,8 @@ class AliceDebugger : IDebugger
 private:
     /// Current process.
     adbg_process_t *process;
+    /// Last adapter event.
+    AdapterEvent event;
     
     // Actively check if we have an active process.
     // Otherwise, Alicedbg would complain about an invalid handle, which
@@ -92,10 +113,9 @@ private:
 string adbgExceptionName(adbg_exception_t *ex)
 {
     switch (ex.type) with (AdbgException) {
-    case Exit:              return "Exit";
     case Breakpoint:        return "Breakpoint";
     case Step:              return "Step";
-    case Fault:             return "Fault";
+    case AccessViolation:   return "Access Violation";
     case BoundExceeded:     return "Bound Exceeded";
     case Misalignment:      return "Misalignment";
     case IllegalInstruction:return "Illegal Instruction";
@@ -111,8 +131,6 @@ string adbgExceptionName(adbg_exception_t *ex)
     case FPUOverflow:       return "FPU Overflow";
     case FPUUnderflow:      return "FPU Underflow";
     case FPUStackOverflow:  return "FPU StackOverflow";
-    case Disposition:       return "Disposition";
-    case NoContinue:        return "No Continue";
     default:                return null;
     }
 }
@@ -126,27 +144,33 @@ AdapterEventStoppedReason adbgExceptionReason(adbg_exception_t *ex) {
     }
 }
 
-// Handle Alicedbg events
+// Handle exceptions
 extern (C)
-void handleAdbgEvent(adbg_process_t *proc, int type, void *edata, void *udata)
+void adbgEventException(adbg_process_t *proc, void *udata, adbg_exception_t *exception)
 {
     AdapterEvent *event = cast(AdapterEvent*)udata;
-    switch (type) {
-    case AdbgEvent.exception:
-        event.type = AdapterEventType.stopped;
-        adbg_exception_t *ex = cast(adbg_exception_t*)edata;
-        event.stopped.reason = adbgExceptionReason(ex);
-        event.stopped.text = adbgExceptionName(ex);
-        event.stopped.description = "Exception";
-        // TODO: Assign Thread ID once Alicedbg gets TID association
-        event.stopped.threadId = 0;
-        return;
-    case AdbgEvent.processExit:
-        event.type = AdapterEventType.exited;
-        int *code = cast(int*)edata;
-        event.exited.code = *code;
-        return;
-    default:
-        // ...
-    }
+    event.type = AdapterEventType.stopped;
+    event.stopped.reason = adbgExceptionReason(exception);
+    event.stopped.text = adbgExceptionName(exception);
+    event.stopped.description = "Exception";
+    event.stopped.threadId = cast(int)adbg_exception_tid(exception);
+}
+
+// Handle continuations
+extern (C)
+void adbgEventContinued(adbg_process_t *proc, void *udata)
+{
+    AdapterEvent *event = cast(AdapterEvent*)udata;
+    event.type = AdapterEventType.continued;
+    // TODO: Assign Thread ID once Alicedbg gets better TID association
+    event.continued.threadId = adbg_process_id(proc);
+}
+
+// Handle exits
+extern (C)
+void adbgEventExited(adbg_process_t *proc, void *udata, int code)
+{
+    AdapterEvent *event = cast(AdapterEvent*)udata;
+    event.type = AdapterEventType.exited;
+    event.exited.code = code;
 }
