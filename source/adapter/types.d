@@ -5,6 +5,14 @@
 /// License: BSD-3-Clause-Clear
 module adapter.types;
 
+enum MachineArchitecture
+{
+    i386,
+    x86_64,
+    AArch32,
+    AArch64,
+}
+
 //
 // Request types
 //
@@ -182,6 +190,14 @@ enum EventMessageType
     
 }
 
+struct AdapterFrame
+{
+    ulong address;
+    string func;
+    string[] args;
+    MachineArchitecture arch;
+}
+
 struct AdapterEvent
 {
     AdapterEventType type;
@@ -208,6 +224,8 @@ struct AdapterEvent
             /// Additional information. E.g. If reason is `exception`,
             /// text contains the exception name. This string is shown in the UI.
             string text;
+            /// MI: Describes the frame where the stop event happened.
+            AdapterFrame frame;
         }
         AdapterEventStopped stopped;
         

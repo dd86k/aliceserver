@@ -11,6 +11,9 @@ import debugger.base;
 import adapter.types;
 import adbg.debugger;
 import adbg.process.exception;
+import adbg.process.frame;
+import adbg.process.thread;
+import adbg.machines;
 import adbg.error;
 
 // TODO: Could be possible to make a "AlicedbgRemote" class for remote sessions
@@ -144,16 +147,47 @@ AdapterEventStoppedReason adbgExceptionReason(adbg_exception_t *ex) {
     }
 }
 
+// Translate AdbgMachine to MachineArchitcture
+MachineArchitecture adbgMachine(AdbgMachine mach)
+{
+    switch (mach)  {
+    case AdbgMachine.i386:  return MachineArchitecture.i386;
+    case AdbgMachine.amd64: return MachineArchitecture.x86_64;
+    default:
+        // TODO: machine architecture as default
+    }
+    return cast(MachineArchitecture)-1;
+}
+
 // Handle exceptions
 extern (C)
 void adbgEventException(adbg_process_t *proc, void *udata, adbg_exception_t *exception)
 {
     AdapterEvent *event = cast(AdapterEvent*)udata;
+    
     event.type = AdapterEventType.stopped;
     event.stopped.reason = adbgExceptionReason(exception);
     event.stopped.text = adbgExceptionName(exception);
     event.stopped.description = "Exception";
     event.stopped.threadId = cast(int)adbg_exception_tid(exception);
+    
+    event.stopped.frame = AdapterFrame.init;
+    event.stopped.frame.arch = adbgMachine(adbg_process_machine(proc));
+    
+    adbg_thread_t *thread = adbg_thread_new(adbg_exception_tid(exception));
+    if (thread == null)
+        return;
+    scope(exit) adbg_thread_close(thread);
+    
+    void *frames = adbg_frame_list(proc, thread);
+    if (frames == null)
+        return;
+    scope(exit) adbg_frame_list_close(frames);
+    
+    adbg_stackframe_t *frame0 = adbg_frame_list_at(frames, 0);
+    if (frame0 == null)
+        return;
+    event.stopped.frame.address = frame0.address;
 }
 
 // Handle continuations

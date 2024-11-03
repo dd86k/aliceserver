@@ -480,9 +480,9 @@ final class MIAdapter : Adapter
     }
     
     override
-    void event(AdapterEvent msg)
+    void event(AdapterEvent event)
     {
-        switch (msg.type) with (AdapterEventType) {
+        switch (event.type) with (AdapterEventType) {
         // - ~"Starting program: example.exe \n"
         // - =library-loaded,id="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
         //   target-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
@@ -495,6 +495,7 @@ final class MIAdapter : Adapter
             break;*/
         // - *running,thread-id="all"
         case continued:
+            send("*running\n");
             break;
         // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
         //   frame={addr="0x08048564",func="main",
@@ -505,18 +506,31 @@ final class MIAdapter : Adapter
         //   signal-meaning="Segmentation fault",frame={addr="0x0000000000000000",
         //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
         case stopped:
+            MIValue frame;
+            frame["addr"] = format("%#x", event.stopped.frame.arch);
+            frame["func"] = event.stopped.frame.func is null ? "??" : event.stopped.frame.func;
+            frame["args"] = event.stopped.frame.args;
+            frame["arch"] = toMIArch(event.stopped.frame.arch);
+            MIValue root;
+            root["reason"] = toMIStoppedReason(event.stopped.reason);
+            //root["signal-name"] = "SIGSEGV";
+            //root["signal-meaning"] = "Segmentation fault";
+            root["frame"] = frame;
+            root["thread-id"] = event.stopped.threadId;
+            root["stopped-threads"] = "all";
+            send(toMessage("*stopped", root));
             break;
         // - *stopped,reason="exited-normally"
         // - *stopped,reason="exited",exit-code="01"
         // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
         case exited:
-            if (msg.exited.code)
-                send(format("*stopped,reason=\"exited\",exit-code=\"%d\"\n", msg.exited.code));
+            if (event.exited.code)
+                send(format("*stopped,reason=\"exited\",exit-code=\"%d\"\n", event.exited.code));
             else
                 send("*stopped,reason=\"exited-normally\"\n");
             break;
         default:
-            logWarn("Unimplemented event type: %s", msg.type);
+            logWarn("Unimplemented event type: %s", event.type);
         }
     }
     
@@ -558,6 +572,43 @@ unittest
     assert(miVersion(AdapterType.mi4) == 4);
     // Invalid MI verisons
     assert(miVersion(AdapterType.dap) == 0);
+}
+
+private
+string toMessage(string prefix, MIValue miobj)
+{
+    return prefix~","~miobj.toString()~"\n";
+}
+
+private
+string toMIArch(MachineArchitecture arch)
+{
+    final switch (arch) {
+    case MachineArchitecture.i386: return "i386";
+    case MachineArchitecture.x86_64: return "i386:x86_64";
+    case MachineArchitecture.AArch32: return "??";
+    case MachineArchitecture.AArch64: return "??";
+    }
+}
+
+private
+string toMIStoppedReason(AdapterEventStoppedReason reason)
+{
+    final switch (reason) with (AdapterEventStoppedReason) {
+    case step:
+        return "step";
+    case breakpoint:
+        return "breakpoint-hit";
+    case exception:
+        return "signal-received";
+    case pause:
+    case entry:
+    case goto_:
+    case functionBreakpoint:
+    case dataBreakpoint:
+    case instructionBreakpoint:
+        return "unknown";
+    }
 }
 
 private

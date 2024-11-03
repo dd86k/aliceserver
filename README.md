@@ -43,6 +43,9 @@ Use cases:
 
 Aliceserver is implemented using an Object-Oriented Programming model.
 
+The debugger server provides types and structures that the adapters and
+debuggers must interpret.
+
 ## Transports
 
 Each transport classes inherit `transport.base.ITransport`.

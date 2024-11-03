@@ -19,6 +19,27 @@ import ddlogger;
 //       This could be a request type, or server simply launching new ones with
 //       matching sequence IDs (as DAP goes).
 
+// TODO: Debugger server request queue
+//
+//       Currently, there are no ways for manage multiple requests, for example,
+//       if the adapter bursts more than one request for fine-grained control.
+//       This would be nice to have before multi-session handling
+//
+//       Ideas:
+//       - Make adapters return a dynamic array of requests?
+//       - Use message passing? One concurrent thread per adapter?
+
+// TODO: Adapter-driven debugger requests
+//
+//       Right now, the server server handles all requests sequencially with
+//       the intent to reply to the client, but there are times when the adapter
+//       simply wants additional information that wouldn't be relevant to another
+//       adapter. (e.g., MI protocol wants frame info on a stop event, DAP doesn't)
+//
+//       Ideas:
+//       - Attach debugger instance to a Session class with its adapter?
+//       - Abstract class can setup the event thread, etc.
+
 // NOTE: Structure
 //
 //       The server can ultimately handle one adapter protocol, and if the

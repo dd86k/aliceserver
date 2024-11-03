@@ -51,6 +51,18 @@ struct MIValue
         return store.boolean = v;
     }
     
+    long integer()
+    {
+        if (type != MIType.integer)
+            throw new Exception(text("Not an integer, it is ", type));
+        return store.integer;
+    }
+    long integer(long v)
+    {
+        type = MIType.integer;
+        return store.integer = v;
+    }
+    
     // Get value by index
     ref typeof(this) opIndex(return scope string key)
     {
@@ -212,15 +224,30 @@ private:
 unittest
 {
     // Type testing
-    MIValue mistring;
-    mistring["key"] = "value";
-    assert(mistring["key"].str == "value");
-    assert(mistring.toString() == `key="value"`);
-    
-    MIValue mibool;
-    mibool["boolean"] = true;
-    assert(mibool["boolean"].boolean == true);
-    assert(mibool.toString() == `boolean="true"`);
+    {
+        MIValue mistring;
+        mistring["key"] = "value";
+        assert(mistring["key"].str == "value");
+        assert(mistring.toString() == `key="value"`);
+    }
+    {
+        MIValue mibool;
+        mibool["boolean"] = true;
+        assert(mibool["boolean"].boolean == true);
+        assert(mibool.toString() == `boolean="true"`);
+    }
+    {
+        MIValue miint;
+        miint["int"] = 2;
+        assert(miint["int"].integer == 2);
+        assert(miint.toString() == `int="2"`);
+    }
+    {
+        MIValue miint;
+        miint["int"] = 2;
+        assert(miint["int"].integer == 2);
+        assert(miint.toString() == `int="2"`);
+    }
     
     /*
     ^done,threads=[
