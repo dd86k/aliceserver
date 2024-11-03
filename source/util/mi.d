@@ -15,6 +15,8 @@ enum MIType : ubyte
 {
     null_,
     string_,
+    boolean_,
+    
     integer,
     uinteger,
     floating,
@@ -37,11 +39,26 @@ struct MIValue
         return store.string_ = v;
     }
     
+    bool boolean()
+    {
+        if (type != MIType.boolean_)
+            throw new Exception(text("Not a boolean, it is ", type));
+        return store.boolean;
+    }
+    bool boolean(bool v)
+    {
+        type = MIType.boolean_;
+        return store.boolean = v;
+    }
+    
     // Get value by index
     ref typeof(this) opIndex(return scope string key)
     {
         if (type != MIType.object_)
             throw new Exception(text("Attempted to index non-object, it is ", type));
+        
+        if ((key in store.object_) is null)
+            throw new Exception(text("Value not found with key '", key, "'"));
         
         return store.object_[key];
     }
@@ -49,6 +66,7 @@ struct MIValue
     // Set value by key index
     void opIndexAssign(T)(auto ref T value, string key)
     {
+        // Only objects can have properties set in them
         switch (type) with (MIType) {
         case object_, null_: break;
         default: throw new Exception(text("MIValue must be object or null, it is ", type));
@@ -65,6 +83,11 @@ struct MIValue
             mi.type = MIType.string_;
             mi.store.string_ = value;
         }
+        else static if (is(T : bool))
+        {
+            mi.type = MIType.boolean_;
+            mi.store.boolean = value;
+        }
         else static if (is(T : int) || is(T : long))
         {
             mi.type = MIType.integer;
@@ -77,7 +100,7 @@ struct MIValue
         }
         else static if (is(T : float) || is(T : double))
         {
-            mi.type = MIType.uinteger;
+            mi.type = MIType.floating;
             mi.store.floating = value;
         }
         else static if (isArray!T)
@@ -99,8 +122,7 @@ struct MIValue
         }
         else static if (is(T : MIValue))
         {
-            mi.type  = value.type;
-            mi.store = value.store;
+            mi = value;
         }
         else static assert(false, "Not implemented for type "~T.stringof);
         
@@ -117,6 +139,8 @@ struct MIValue
         switch (type) with (MIType) {
         case string_:
             return store.string_;
+        case boolean_:
+            return store.boolean ? "true" : "false";
         case integer:
             return text( store.integer );
         case array:
@@ -178,6 +202,7 @@ private:
         long integer;
         ulong uinteger;
         double floating;
+        bool boolean;
         MIValue[string] object_;
         MIValue[] array;
     }
@@ -186,11 +211,16 @@ private:
 }
 unittest
 {
-    // Minimal value
-    MIValue mini;
-    mini["key"] = "value";
-    assert(mini["key"].str == "value");
-    assert(mini.toString() == `key="value"`);
+    // Type testing
+    MIValue mistring;
+    mistring["key"] = "value";
+    assert(mistring["key"].str == "value");
+    assert(mistring.toString() == `key="value"`);
+    
+    MIValue mibool;
+    mibool["boolean"] = true;
+    assert(mibool["boolean"].boolean == true);
+    assert(mibool.toString() == `boolean="true"`);
     
     /*
     ^done,threads=[

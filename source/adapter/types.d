@@ -20,6 +20,9 @@ enum AdapterRequestType
     /// Attach debugger to process
     attach,
     
+    /// Explicitly start the process if it was not running.
+    run,
+    
     /// Set current working directory of debugger.
     currentWorkingDirectory,
     
@@ -53,12 +56,14 @@ struct AdapterRequest
         struct RequestAttachOptions
         {
             int pid;
+            bool run;
         }
         RequestAttachOptions attachOptions;
         
         struct RequestLaunchOptions
         {
             string path;
+            bool run;
         }
         RequestLaunchOptions launchOptions;
         
@@ -84,7 +89,7 @@ struct AdapterRequest
 /// by the server.
 struct AdapterReply
 {
-    
+    string details;
 }
 
 /// Used to reply an error back to the client, that the request
@@ -205,6 +210,12 @@ struct AdapterEvent
             string text;
         }
         AdapterEventStopped stopped;
+        
+        struct AdapterEventContinued
+        {
+            int threadId;
+        }
+        AdapterEventContinued continued;
         
         struct AdapterEventExited
         {

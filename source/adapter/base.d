@@ -13,7 +13,7 @@ import ddlogger;
 
 /// Abstract Adapter class used to interface a protocol.
 ///
-/// This class alone is incapable to interface with the server.
+/// An instance of this class is incapable of interfacing with the server.
 abstract class Adapter
 {
     this(ITransport t)

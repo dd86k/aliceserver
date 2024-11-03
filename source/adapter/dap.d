@@ -194,12 +194,14 @@ class DAPAdapter : Adapter
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "path", request.launchOptions.path);
+            request.launchOptions.run = true; // DAP wants to immediately continue
             break;
         case "attach":
             request.type = AdapterRequestType.attach;
             JSONValue jargs;
             required(j, "arguments", jargs);
             required(jargs, "pid", request.attachOptions.pid);
+            request.attachOptions.run = true; // DAP wants to immediately continue
             break;
         case "continue":
             request.type = AdapterRequestType.continue_;

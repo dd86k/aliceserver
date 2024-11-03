@@ -22,19 +22,20 @@ import std.file : chdir;
 import std.format : format;
 import std.string : indexOf;
 import std.outbuffer : OutBuffer;
+import std.string : stripRight;
 import util.shell : shellArgs;
 import util.mi;
 
 // NOTE: GDB/MI versions and commmands
 //
 //       The most important aspect to be as close to GDB as possible, since LLVM
-//       does not distribute compiled llvm-mi binaries anymore, I believe maybe either
+//       does not distribute compiled llvm-mi binaries anymore, I believe many either
 //       switched to gdb-mi or llvm-vscode.
 //
 //       Handling version variants is currently a work in progress. But right now,
 //       it has no significance of its own. When "mi" is specified, GDB defaults to
 //       the latest version: "Since --interpreter=mi always points to the latest MI version,"
-//       Since there is no way to specify MI version 1, it will not be implemented.
+//       And since there is no way to specify MI version 1, it will not be implemented.
 //
 //       MI   GDB  Breaking changes
 //        1   5.1
@@ -53,18 +54,18 @@ import util.mi;
 //        4  13.1  - The syntax of the "script" field in breakpoint output has changed
 //                   in the responses to the -break-insert and -break-info commands,
 //                   as well as the =breakpoint-created and =breakpoint-modified events.
-//                   The previous output was syntactically invalid. The new output is a list. 
+//                   The previous output was syntactically invalid. The new output is a list.
 //
 //       mi-async 1 (target-async in <= gdb 7.7)
 //
-//       Distro      GDBVer
-//       Debian  6      7.0
-//       Debian  7      7.4
-//       Debian  8      7.7
-//       Debian  9     7.12
-//       Debian 10      8.2
-//       Debian 11     10.1
-//       Debian 12     13.1
+//       Distro      GDBVer  MIVer
+//       Debian  6      7.0      2
+//       Debian  7      7.4      2
+//       Debian  8      7.7      2
+//       Debian  9     7.12      2
+//       Debian 10      8.2      2
+//       Debian 11     10.1      3
+//       Debian 12     13.1      4
 
 // NOTE: code-debug
 //
@@ -122,56 +123,28 @@ unittest
     assert(formatCString("Thing: \"hi\"\n") == `Thing: \"hi\"\n`);
 }
 
-class MIAdapter : Adapter
+final class MIAdapter : Adapter
 {
+    private enum {
+        RETURN, /// Request is ready to be returned
+        SKIP,   /// Skip request
+    }
+    
     this(ITransport t, int version_ = 2)
     {
         super(t);
         
-        if (version_ < 2 || version_ > 4) // failsafe
-            throw new Exception("Wrong MI version specified");
+        // Right now, all versions do the same things, for now
+        switch (version_) {
+        case 1: version_ = 4; goto case 4;
+        case 2: break; // TODO: MI version 2 specific command behavior
+        case 3: break; // TODO: MI version 3 specific command behavior
+        case 4: break; // TODO: MI version 4 specific command behavior
+        default:
+            throw new Exception("Unsupported MI version");
+        }
+        
         miversion = version_;
-        
-        send(gdbPrompt); // Ready!
-    }
-    
-    // Return short name of this adapter
-    override
-    string name()
-    {
-        switch (miversion) {
-        case 3:     return "mi3";
-        case 2:     return "mi2";
-        default:    return "mi4";
-        }
-    }
-    
-    override
-    AdapterRequest listen()
-    {
-    Lread:
-        ubyte[] buffer = receive();
-        string fullrequest = cast(immutable(char)[])buffer;
-        
-        // Parse request and imitate GDB
-        MIRequest command = parseMIRequest(fullrequest);
-        send(formatCString("&\"%s\"\n", command.line));
-        
-        // GDB behavior:
-        // - "":    valid
-        // - "-":   invalid (not found)
-        // - "22":  valid
-        // - "22-": invalid (not found)
-        // - "22 help": valid
-        if (command.name == "")
-        {
-            reply(AdapterReply());
-            goto Lread;
-        }
-        
-        request = AdapterRequest.init;
-        request.id = command.id;
-        
         // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
@@ -187,171 +160,275 @@ class MIAdapter : Adapter
         //       - break-condition: change condition to breakpoint
         //       - file-exec-and-symbols: set exec and symbols
         //       - goto: break-insert -t TARGET or exec-jump TARGET
+        // Command list: gdb/mi/mi-cmds.c
         
-        // Filtered by recognized requests (Command list: gdb/mi/mi-cmds.c)
-        switch (command.name) {
         // -exec-run [ --all | --thread-group N ] [ --start ]
         // Start execution of target process.
         //   --all: Start all target subprocesses
         //   --thread-group: Start only thread group (of type process) for target process
         //   --start: Stop at target's main function.
-        case "exec-run":
-            request.type = AdapterRequestType.launch;
-            
-            // If we saved the exec target
-            string exec = targetExec();
-            if (exec)
-            {
-                request.launchOptions.path = exec;
-                return request;
-            }
-            
-            reply(AdapterError("No executable to run."));
-            goto Lread;
-        // Resume process execution.
-        case "exec-continue":
+        commands["exec-run"] =
+        commands["exec"] =
+        (string[] args) {
+            request.type = AdapterRequestType.run;
+            return RETURN;
+        };
+        // Resume process execution from a stopped state.
+        commands["exec-continue"] =
+        commands["continue"] =
+        (string[] args) {
             request.type = AdapterRequestType.continue_;
-            return request;
-        // Terminal process.
-        case "exec-abort":
+            return RETURN;
+        };
+        // Terminate process.
+        commands["exec-abort"] =
+        (string[] args) {
             request.type = AdapterRequestType.terminate;
-            return request;
+            return RETURN;
+        };
         // attach PID
         // Attach debugger to process by its ID.
-        case "target-attach", "attach":
-            if (command.args.length < 2)
+        commands["target-attach"] =
+        commands["attach"] =
+        (string[] args) {
+            if (args.length < 1)
             {
                 reply(AdapterError("Missing process-id argument."));
-                goto Lread;
+                return SKIP;
             }
             
-            try request.attachOptions.pid = to!uint(command.args[1]);
+            string pidstr = args[0];
+            try request.attachOptions.pid = to!uint(pidstr);
             catch (Exception ex)
             {
-                reply(AdapterError(format("Illegal process-id: '%s'.", command.args[1])));
-                goto Lread;
+                reply(AdapterError(format("Illegal process-id: '%s'.", pidstr)));
+                return SKIP;
             }
             
             request.type = AdapterRequestType.attach;
-            return request;
+            request.attachOptions.run = true;
+            return RETURN;
+        };
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
-        case "target-detach", "gdb-detach", "detach":
+        commands["target-detach"] =
+        commands["gdb-detach"] =
+        commands["detach"] =
+        (string[] args) {
             request.type = AdapterRequestType.detach;
-            return request;
+            return RETURN;
+        };
         // -target-disconnect
         // Disconnect from remote target.
-        //case "target-disconnect":
+        commands["target-disconnect"] =
+        (string[] args) {
+            request.type = AdapterRequestType.detach;
+            return RETURN;
+        };
         // target TYPE [OPTIONS]
         // Set target parameters.
-        case "target":
-            if (command.args.length < 2)
+        commands["target"] =
+        (string[] args) {
+            if (args.length < 1)
             {
                 reply(AdapterError("Need target type"));
-                goto Lread;
+                return SKIP;
             }
             
-            string targetType = command.args[1];
+            string targetType = args[0];
             switch (targetType) {
             case "exec":
-                if (command.args.length < 3)
+                if (args.length < 2)
                 {
                     reply(AdapterError("Need target executable path"));
-                    goto Lread;
+                    return SKIP;
                 }
                 
-                targetExec( command.args[2].dup );
+                targetExec( args[1].dup );
                 reply(AdapterReply());
-                goto Lread;
+                break;
             default:
                 reply(AdapterError(format("Invalid target type: %s", targetType)));
             }
-            goto Lread;
+            return SKIP;
+        };
         // file-exec-and-symbols PATH
         // (gdb, lldb) Set target path and symbols as the same
-        case "file-exec-and-symbols":
-            if (command.args.length < 2)
+        commands["file-exec-and-symbols"] =
+        (string[] args) {
+            if (args.length < 1)
             {
                 reply(AdapterError("Need target executable path"));
-                goto Lread;
+                return SKIP;
             }
             
-            targetExec( command.args[1].dup );
+            targetExec( args[0].dup );
             reply(AdapterReply());
-            goto Lread;
+            return SKIP;
+        };
         // -exec-arguments ARGS
         // Set target arguments.
-        case "exec-arguments":
+        commands["exec-arguments"] =
+        (string[] args) {
             // If arguments given, set, otherwise, clear.
-            targetExecArgs(command.args.length > 1 ? command.args[1..$].dup : null);
+            targetExecArgs(args.length > 0 ? args[0..$].dup : null);
             reply(AdapterReply());
-            goto Lread;
+            return SKIP;
+        };
         // -environment-cd PATH
         // Set debugger directory.
-        case "environment-cd":
-            if (command.args.length < 2)
+        commands["exec-arguments"] =
+        (string[] args) {
+            if (args.length < 1)
             {
                 reply(AdapterError("Missing PATH directory."));
-                goto Lread;
+                return SKIP;
             }
             
-            // NOTE: Ultimately, the server should be the one controlling cwd
-            try chdir(command.args[1]);
+            // NOTE: Ultimately, the server should be the one controlling these requests
+            try chdir(args[0]);
             catch (Exception ex)
             {
                 reply(AdapterError(ex.msg));
-                goto Lread;
+                return SKIP;
             }
             
             reply(AdapterReply());
-            goto Lread;
+            return SKIP;
+        };
         // show [INFO]
         // Show information about session.
         // Without an argument, GDB shows everything as stream output and
         // quits without sending a reply nor the prompt.
-        case "show":
-            if (command.args.length < 1)
+        commands["show"] =
+        (string[] args) {
+            if (args.length < 1)
             {
                 reply(AdapterReply());
-                goto Lread;
+                return SKIP;
             }
             
-            string showCommand = command.args[1];
+            string showCommand = args[0];
             switch (showCommand) {
             case "version":
                 static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
                 send(APPVERSION);
                 send(msgDone);
                 send(gdbPrompt);
-                goto Lread;
+                return SKIP;
             default:
             }
             
             reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
-            goto Lread;
-        // TODO: -info-gdb-mi-command COMMAND
-        // Check if command exists.
-        //case "info-gdb-mi-command":
-        //    goto Lread;
+            return SKIP;
+        };
+        // -info-gdb-mi-command COMMAND
+        // Sends information about the MI command, if it exists.
+        // Example:
+        //   -info-gdb-mi-command show
+        //   ^done,command={exists="false"} 
+        // NOTE: While regular commands work in MI, these will "not exist" in the MI sense
+        //       In anyway, saying that the commands exist is not GDB/MI compliant, but
+        //       at least removes some hurdles.
+        commands["info-gdb-mi-command"] =
+        (string[] args) {
+            if (args.length < 1)
+            {
+                reply(AdapterError("Usage: -info-gdb-mi-command MI_COMMAND_NAME"));
+                return SKIP;
+            }
+            MIValue command;
+            command["exists"] = cast(bool)((args[0] in commands) != null);
+            MIValue r;
+            r["command"] = command;
+            reply(AdapterReply(r.toString()));
+            return SKIP;
+        };
         // List debugger features
         // gdb 13.1 example: ^done,features=["example","python"]
-        case "list-features":
+        commands["list-features"] =
+        (string[] args) {
             // See §27.23 GDB/MI Support Commands for list.
             send("^done,features=[]\n");
             send(gdbPrompt);
-            goto Lread;
-        case "q", "quit", "gdb-exit":
+            return SKIP;
+        };
+        // Ignore list
+        commands["gdb-set"] =
+        commands["inferior-tty-set"] =
+        (string[] args) { return SKIP; };
+        // Close debugger instance
+        commands["gdb-exit"] =
+        commands["quit"] =
+        commands["q"] =
+        (string[] args) {
             request.type = AdapterRequestType.close;
             // NOTE: gdb-mi when attached does not terminate.
             //       Therefore, the preference is not to terminate.
             request.closeOptions.terminate = false;
-            return request;
-        // Ignore list
-        case "gdb-set", "inferior-tty-set": goto Lread;
-        default:
-            reply(AdapterError(format(`Unknown request: "%s"`, command.name)));
+            return RETURN;
+        };
+        
+        send(gdbPrompt); // Ready!
+    }
+    
+    // Return short name of this adapter
+    override
+    string name()
+    {
+        final switch (miversion) {
+        case 4: return "mi4";
+        case 3: return "mi3";
+        case 2: return "mi2";
+        }
+    }
+    
+    override
+    AdapterRequest listen()
+    {
+    Lread:
+        ubyte[] buffer = receive();
+        string fullrequest = cast(immutable(char)[])buffer;
+        
+        // Parse request
+        MIRequest command = parseMIRequest(fullrequest);
+        
+        // GDB sends the trace of the command as an event
+        // NOTE: GDB does not echo commands when they aren't MI-related
+        //       Examples that do emit trace: "q", not found commands
+        //       Examples that don't: "-info-gdb-mi-command"
+        {
+            scope OutBuffer tracebuf = new OutBuffer();
+            tracebuf.write("&\"");
+            tracebuf.write(formatCString(command.line));
+            tracebuf.write("\"\n");
+            send(tracebuf.toBytes());
+        }
+        
+        // GDB behavior:
+        // - "":    valid
+        // - "-":   invalid (not found)
+        // - "22":  valid
+        // - "22-": invalid (not found)
+        // - "22 help": valid
+        if (command.name == "") // note: "-" -> "" by command parser
+        {
+            reply(AdapterReply());
             goto Lread;
         }
+        
+        // Command exists, get request out of that
+        if (int delegate(string[])* fq = command.name in commands)
+        {
+            request = AdapterRequest.init;
+            request.id = command.id;
+            if ((*fq)(command.args))
+                goto Lread;
+            return request;
+        }
+        
+        reply(AdapterError(format(`Unknown request: "%s"`, command.name)));
+        goto Lread;
     }
     
     override
@@ -370,12 +447,20 @@ class MIAdapter : Adapter
         // Some requests may emit different result words
         switch (request.type) {
         case AdapterRequestType.launch: // Compability
-            buffer.write("^running\n");
+        case AdapterRequestType.run: // Compability
+            buffer.write("^running");
             break;
         default:
-            // TODO: Add result data
-            buffer.write("^done\n");
+            buffer.write("^done");
         }
+        
+        if (msg.details)
+        {
+            buffer.write(',');
+            buffer.write(msg.details);
+        }
+        
+        buffer.write('\n');
         
         send(buffer.toBytes());
         send(gdbPrompt); // Ready
@@ -439,12 +524,17 @@ class MIAdapter : Adapter
     void close()
     {
         // When a quit request is sent, GDB simply quits without confirming,
-        // since the client is supposed to do that.
+        // since the client is supposed to do the confirming part.
         //
         // So, do nothing!
     }
     
 private:
+    // NOTE: Virtual functions inside a constructor may lead to unexpected results
+    //       in the derived classes - At leat marking the class as final prevents this
+    /// AA of implemented commands
+    int delegate(string[] args)[string] commands;
+    /// Current MI version in use
     int miversion;
     /// Current request
     AdapterRequest request;
@@ -463,7 +553,6 @@ int miVersion(AdapterType adp)
 unittest
 {
     // Valid MI versions
-    assert(miVersion(AdapterType.mi)  == 4);
     assert(miVersion(AdapterType.mi2) == 2);
     assert(miVersion(AdapterType.mi3) == 3);
     assert(miVersion(AdapterType.mi4) == 4);
@@ -533,6 +622,10 @@ MIRequest parseMIRequest(string command)
         mi.name = command;
         mi.args = [];
     }
+    
+    // Newline must be in full line, but not in last argument...
+    if (mi.args.length)
+        mi.args[$-1] = mi.args[$-1].stripRight();
     
     return mi;
 }

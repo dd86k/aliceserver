@@ -93,20 +93,22 @@ void startServer(Adapter adapter) // Handles adapter
     assert(adapter, "No adapter set before calling function");
     
     IDebugger debugger = new AliceDebugger();
-    
-    // Get requests
-    logTrace("Listening to %s via %s...", adapter.transportName(), adapter.name());
     Thread eventThread = new Thread({
-        Levent:
-            AdapterEvent event = debugger.wait();
-            adapter.event(event);
-            
-            switch (event.type) with (AdapterEventType) {
-            case exited: // Process exited
-                return;
-            default: goto Levent;
-            }
-        });
+    Levent:
+        AdapterEvent event = debugger.wait();
+        adapter.event(event); // relay to client
+        
+        switch (event.type) with (AdapterEventType) {
+        case exited: // Process exited, so quit event thread
+            return;
+        default:
+            goto Levent;
+        }
+    });
+    scope(exit) if (eventThread.isRunning()) debugger.terminate();
+    
+    logTrace("Listening via %s using %s...", adapter.name(), adapter.transportName());
+    // Get requests
     AdapterRequest request = void;
 Lrequest:
     try request = adapter.listen();
@@ -122,27 +124,49 @@ Lrequest:
     switch (request.type) {
     // Launch process with debugger
     case AdapterRequestType.launch:
-        with (request.launchOptions) try debugger.launch(path, null, null);
+        with (request.launchOptions)
+            try debugger.launch(path, null, null);
         catch (Exception ex)
         {
             adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
+        
+        if (request.attachOptions.run)
+            eventThread.start();
         
         adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.launch;
         break;
     // Attach debugger to process
     case AdapterRequestType.attach:
-        with (request.attachOptions) try debugger.attach(pid);
+        with (request.attachOptions)
+            try debugger.attach(pid);
         catch (Exception ex)
         {
             adapter.reply(AdapterError(ex.msg));
             goto Lrequest;
         }
         
+        if (request.attachOptions.run)
+            eventThread.start();
+        
         adapter.reply(AdapterReply());
         debuggerType = AdapterRequestType.attach;
+        break;
+    // Explicitly run
+    case AdapterRequestType.run:
+        switch (debuggerType) with (AdapterRequestType) {
+        case launch, attach: // Previously launched or attached
+            if (eventThread.isRunning()) { // already running...
+                adapter.reply(AdapterError("Process is already running"));
+                break;
+            }
+            eventThread.start();
+            adapter.reply(AdapterReply());
+            break;
+        default:
+        }
         break;
     // Continue
     case AdapterRequestType.continue_:
@@ -194,7 +218,7 @@ Lrequest:
         default: // no idea
             logWarn("Debugger was requested to close, but clueless of state");
         }
-        break;
+        return;
     default:
         string e = format("Request not implemented: %s", request.type);
         logError(e);
