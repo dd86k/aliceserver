@@ -9,7 +9,9 @@ import std.stdio;
 import std.getopt;
 import core.stdc.stdlib : exit;
 import config, server, logging;
-import adapter, debugger, transport;
+import adapters, adapter.mi, adapter.dap;
+import transports, transport.stdio, transport.httpstdio;
+import debuggers, debugger.alicedbg;
 import adbg.platform : ADBG_VERSION;
 
 // TODO: Attach available adapter types
@@ -39,21 +41,25 @@ void main(string[] args)
     GetoptResult gres = void;
     try
     {
-        //TODO: --list-capabilities: List DAP or GDB/MI capabilities
+        // TODO: --list-capabilities: List DAP or GDB/MI capabilities
+        // TODO: --tcp-port=NUMBER
         gres = getopt(args,
         "a|adapter",`Set adapter to use`, (string _, string value) {
             switch (value) {
             case "dap":
-                osettings.adapterType = AdapterType.dap;
+                osettings.adapter.type = AdapterType.dap;
                 break;
             case "mi":
-                osettings.adapterType = AdapterType.mi;
+                osettings.adapter.type = AdapterType.mi;
                 break;
             default:
                 write("Invalid adapter. Available adapters listed below.\n\n");
                 cliListAdapters();
             }
         },
+        /*"d|debugger",``, (string _, string value) {
+            
+        },*/
         "list-adapters",  `List available adapters`, &cliListAdapters,
         "log",      `Logger: Enable logging to stderr`, &osettings.logStderr,
         "logfile",  `Logger: Enable logging to file path`, &osettings.logFile,
@@ -106,12 +112,12 @@ void main(string[] args)
     
     // Select main adapter with transport
     Adapter adapter = void;
-    final switch (osettings.adapterType) with (AdapterType) {
+    final switch (osettings.adapter.type) with (AdapterType) {
     case dap:
         adapter = new DAPAdapter(new HTTPStdioTransport());
         break;
     case mi, mi2, mi3, mi4:
-        adapter = new MIAdapter(new StdioTransport(), miVersion(osettings.adapterType));
+        adapter = new MIAdapter(new StdioTransport(), miVersion(osettings.adapter.type));
         break;
     }
     

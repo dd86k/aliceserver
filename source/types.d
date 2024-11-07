@@ -1,9 +1,9 @@
-/// Basics for defining an adapter.
+/// Server types.
 ///
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapter.types;
+module types;
 
 enum MachineArchitecture
 {

@@ -15,9 +15,12 @@ import std.json;
 import std.string : chompPrefix;
 import std.conv : text;
 import std.utf : validate;
-import adapter.base, adapter.types;
+import adapters, types, debuggers;
 import util.json;
 import ddlogger;
+
+// TODO: Block requests until initialize request and response
+//       And initialize can only been sent once
 
 // NOTE: DAP notes
 //       - Client only sends Requests.
@@ -33,13 +36,6 @@ import ddlogger;
 // client> (Optional) Sets breakpoints if any, then requests configurationDone
 // server> (Optional) Replies configurationDone
 // client> Sends an attach or spawn request
-
-// NOTE: Multi-session
-//
-//       It is possible to have a "newSession" request type from a DAP
-//       "StartDebuggingRequest" request.
-//       Then, server can call something like "addSession" once it supports
-//       multi-sessions.
 
 private
 string eventStoppedReasonString(AdapterEventStoppedReason reason)

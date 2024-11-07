@@ -9,9 +9,11 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-import adapter.base : Adapter;
-import adapter.types;
-import debugger;
+import adapters;
+import types;
+import debuggers;
+import transports;
+import debugger.alicedbg;
 import ddlogger;
 
 // TODO: Accept multi-session
@@ -63,11 +65,26 @@ else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
 
 /// Adapter type.
 enum AdapterType { dap, mi, mi2, mi3, mi4 }
+/// 
+enum DebuggerType { alicedbg }
 
-/// Server settings.
+struct DebuggerSettings
+{
+    DebuggerType type;
+}
+
+struct AdapterSettings
+{
+    AdapterType type;
+}
+
 struct ServerSettings
 {
-    AdapterType adapterType;
+    DebuggerSettings debugger;
+    AdapterSettings adapter;
+    
+    ushort tcpPort;
+    
     bool logStderr;
     string logFile;
     LogLevel logLevel = DEFAULT_LOGLEVEL;
@@ -145,6 +162,8 @@ Lrequest:
     switch (request.type) {
     // Launch process with debugger
     case AdapterRequestType.launch:
+        logTrace("Launching");
+        
         with (request.launchOptions)
             try debugger.launch(path, null, null);
         catch (Exception ex)
@@ -161,6 +180,8 @@ Lrequest:
         break;
     // Attach debugger to process
     case AdapterRequestType.attach:
+        logTrace("Attaching");
+        
         with (request.attachOptions)
             try debugger.attach(pid);
         catch (Exception ex)
@@ -177,6 +198,8 @@ Lrequest:
         break;
     // Explicitly run
     case AdapterRequestType.run:
+        logTrace("Running");
+        
         switch (debuggerType) with (AdapterRequestType) {
         case launch, attach: // Previously launched or attached
             if (eventThread.isRunning()) { // already running...
@@ -191,6 +214,8 @@ Lrequest:
         break;
     // Continue
     case AdapterRequestType.continue_:
+        logTrace("Continuing");
+        
         try debugger.continue_();
         catch (Exception ex)
         {
@@ -203,6 +228,8 @@ Lrequest:
         break;
     // Detach debugger from process
     case AdapterRequestType.detach:
+        logTrace("Detaching");
+        
         try debugger.detach();
         catch (Exception ex)
         {
@@ -216,6 +243,8 @@ Lrequest:
         break;
     // Terminate process
     case AdapterRequestType.terminate:
+        logTrace("Terminating");
+        
         try debugger.terminate();
         catch (Exception ex)
         {
@@ -229,15 +258,13 @@ Lrequest:
         break;
     // Either detaches or terminates process depending how the debugger is attached
     case AdapterRequestType.close:
+        logTrace("Closing debugger");
         switch (debuggerType) {
         case AdapterRequestType.launch: // was launched
-            logTrace("Close -> Terminate");
             goto case AdapterRequestType.terminate;
         case AdapterRequestType.attach: // was attached
-            logTrace("Close -> Detach");
             goto case AdapterRequestType.detach;
-        default: // no idea
-            logWarn("Debugger was requested to close, but clueless of state");
+        default:
         }
         return;
     default:

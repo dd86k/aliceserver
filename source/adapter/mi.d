@@ -11,7 +11,8 @@
 /// License: BSD-3-Clause-Clear
 module adapter.mi;
 
-import adapter.base, adapter.types;
+import adapters, types;
+import debuggers : IDebugger;
 import config;
 import logging;
 import server : AdapterType, targetExec, targetExecArgs;
@@ -126,7 +127,7 @@ unittest
 final class MIAdapter : Adapter
 {
     private enum {
-        RETURN, /// Request is ready to be returned
+        SEND,   /// Request is ready to be returned
         SKIP,   /// Skip request
     }
     
@@ -171,20 +172,20 @@ final class MIAdapter : Adapter
         commands["exec"] =
         (string[] args) {
             request.type = AdapterRequestType.run;
-            return RETURN;
+            return SEND;
         };
         // Resume process execution from a stopped state.
         commands["exec-continue"] =
         commands["continue"] =
         (string[] args) {
             request.type = AdapterRequestType.continue_;
-            return RETURN;
+            return SEND;
         };
         // Terminate process.
         commands["exec-abort"] =
         (string[] args) {
             request.type = AdapterRequestType.terminate;
-            return RETURN;
+            return SEND;
         };
         // attach PID
         // Attach debugger to process by its ID.
@@ -207,7 +208,7 @@ final class MIAdapter : Adapter
             
             request.type = AdapterRequestType.attach;
             request.attachOptions.run = true;
-            return RETURN;
+            return SEND;
         };
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
@@ -216,14 +217,14 @@ final class MIAdapter : Adapter
         commands["detach"] =
         (string[] args) {
             request.type = AdapterRequestType.detach;
-            return RETURN;
+            return SEND;
         };
         // -target-disconnect
         // Disconnect from remote target.
         commands["target-disconnect"] =
         (string[] args) {
             request.type = AdapterRequestType.detach;
-            return RETURN;
+            return SEND;
         };
         // target TYPE [OPTIONS]
         // Set target parameters.
@@ -296,6 +297,42 @@ final class MIAdapter : Adapter
             reply(AdapterReply());
             return SKIP;
         };
+        // -thread-info [TID]
+        // Get a list of thread and information associated with each thread.
+        // Or only a single thread.
+        // Example:
+        // -thread-info
+        // ^done,threads=[
+        // {id="2",target-id="Thread 0xb7e14b90 (LWP 21257)",
+        //    frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",
+        //            args=[]},state="running"},
+        // {id="1",target-id="Thread 0xb7e156b0 (LWP 21254)",
+        //    frame={level="0",addr="0x0804891f",func="foo",
+        //            args=[{name="i",value="10"}],
+        //            file="/tmp/a.c",fullname="/tmp/a.c",line="158",arch="i386:x86_64"},
+        //            state="running"}],
+        // current-thread-id="1"
+        // https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI-Thread-Information.html
+        // Thread Information:
+        // - id: The global numeric id assigned to the thread by GDB.
+        // - target-id: The target-specific string identifying the thread.
+        // - details: Additional information about the thread provided by the target.
+        //   It is supposed to be human-readable and not interpreted by the frontend.
+        //   This field is optional.
+        // - name: The name of the thread.
+        //   If the user specified a name using the thread name command, then
+        //   this name is given. Otherwise, if GDB can extract the thread name
+        //   from the target, then that name is given. If GDB cannot find the
+        //   thread name, then this field is omitted.
+        // - state: The execution state of the thread, either ‘stopped’ or ‘running’,
+        //   depending on whether the thread is presently running.
+        // - frame: Frame information
+        // - core: The value of this field is an integer number of the processor
+        //   core the thread was last seen on. This field is optional.
+        commands["thread-info"] =
+        (string[] args) {
+            assert(false, "todo");
+        };
         // show [INFO]
         // Show information about session.
         // Without an argument, GDB shows everything as stream output and
@@ -366,7 +403,7 @@ final class MIAdapter : Adapter
             // NOTE: gdb-mi when attached does not terminate.
             //       Therefore, the preference is not to terminate.
             request.closeOptions.terminate = false;
-            return RETURN;
+            return SEND;
         };
         
         send(gdbPrompt); // Ready!

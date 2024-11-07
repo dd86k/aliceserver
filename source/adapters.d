@@ -3,10 +3,11 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapter.base;
+module adapters;
 
-public import transport.base : ITransport;
-import adapter.types;
+public import transports : ITransport;
+import types;
+import debuggers;
 import core.thread : Thread;
 import std.datetime : Duration, dur;
 import ddlogger;
@@ -18,7 +19,6 @@ abstract class Adapter
 {
     this(ITransport t)
     {
-        assert(t);
         transport = t;
     }
     

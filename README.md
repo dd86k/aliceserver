@@ -46,6 +46,8 @@ Aliceserver is implemented using an Object-Oriented Programming model.
 The debugger server provides types and structures that the adapters and
 debuggers must interpret.
 
+Aliceserver does not yet support multi-session.
+
 ## Transports
 
 Each transport classes inherit `transport.base.ITransport`.
@@ -94,22 +96,13 @@ This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
 double-precision floating-point number (IEEE 754 `double`).
 
-DAP is capable of initiating multiple debugging sessions, also known as a
-multi-session configuration
-
-Aliceserver does not yet support multi-session.
-
 ### Connection Details
 
-By default, single-session mode is used. A client may request to initiate a new
-debugging session by emiting the `startDebugging` request, which turns the server
-configuration into a multi-session mode. Request management is performed by clients
-tracking request IDs themselves.
+DAP has two connection models: Single-session and multi-session.
+- Single-session: Using standard I/O (stdio), a single adapter instance is started.
+- Multi-session: Using TCP/IP, every new connection initiates a new adapter instance.
 
-In either modes, the client spawns the server and uses the standard streams (stdio)
-to communicate with the server.
-
-Messages are encoded as HTTP messages.
+Messages are encoded as HTTP messages using the UTF-8 encoding.
 
 Currently, there is only one header field, `Content-Length`, that determines the
 length of the message (payload). This field is read as an Integer.
@@ -136,8 +129,6 @@ Both client and server maintain their own sequence number, starting at 1.
 
 NOTE: lldb-vscode starts their seq number at 0, while not as per specification,
 it poses no difference to its usage.
-
-Multi-session mode is not currently supported.
 
 ### Supported Requests
 
@@ -219,8 +210,6 @@ Command support:
 
 [Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
 is a line-oriented protocol introduced in GDB 5.1.
-
-To my knowledge, MI is not capable of multi-session.
 
 ### Connection Details
 

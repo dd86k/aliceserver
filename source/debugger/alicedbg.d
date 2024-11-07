@@ -7,8 +7,8 @@ module debugger.alicedbg;
 
 import std.string : toStringz, fromStringz;
 import logging;
-import debugger.base;
-import adapter.types;
+import debuggers;
+import types;
 import adbg.debugger;
 import adbg.process.exception;
 import adbg.process.frame;

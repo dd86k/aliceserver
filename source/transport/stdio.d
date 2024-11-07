@@ -6,7 +6,7 @@
 module transport.stdio;
 
 import std.stdio;
-import transport.base;
+import transports;
 
 class StdioTransport : ITransport
 {

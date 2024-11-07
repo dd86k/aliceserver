@@ -8,7 +8,7 @@ module transport.httpstdio;
 import std.stdio;
 import std.conv;
 import std.string;
-import transport.base;
+import transports;
 import logging;
 
 /// Implements the HTTP transport, due to DAP.
