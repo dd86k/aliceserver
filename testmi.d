@@ -101,17 +101,14 @@ Lread:
     case '=': // notify:
         log(Op.trace, mi.body_);
         goto Lread;
-    case '(': // "(gdb)\n" - ready
-        break;
     case '^': // result
         return mi;
-    default:
+    default: // Include unknown reads and "(gdb)\n" here
     }
     
     // Send command
     log(Op.sending, data);
-    server.stdin.write(data);
-    server.stdin.write('\n');
+    server.stdin.write(data, '\n');
     server.stdin.flush();
     
     // Read until we see a reply
@@ -179,8 +176,6 @@ OPTIONS`, ores.options);
     if (tryWait(server.pid).terminated)
         return error(2, "Could not launch server");
     
-    //connect();
-    //send("mi-async 1");
     send("show version");
     
     return 0;

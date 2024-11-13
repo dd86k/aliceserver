@@ -9,9 +9,6 @@ import std.stdio;
 import std.getopt;
 import core.stdc.stdlib : exit;
 import config, server, logging;
-import adapters, adapter.mi, adapter.dap;
-import transports, transport.stdio, transport.httpstdio;
-import debuggers, debugger.alicedbg;
 import adbg.platform : ADBG_VERSION;
 
 // TODO: Attach available adapter types
@@ -41,7 +38,7 @@ void main(string[] args)
     GetoptResult gres = void;
     try
     {
-        // TODO: --list-capabilities: List DAP or GDB/MI capabilities
+        // TODO: --list-capabilities: List DAP capabilities and GDB/MI features
         // TODO: --tcp-port=NUMBER
         gres = getopt(args,
         "a|adapter",`Set adapter to use`, (string _, string value) {
@@ -52,6 +49,15 @@ void main(string[] args)
             case "mi":
                 osettings.adapter.type = AdapterType.mi;
                 break;
+            case "mi2":
+                osettings.adapter.type = AdapterType.mi2;
+                break;
+            case "mi3":
+                osettings.adapter.type = AdapterType.mi2;
+                break;
+            case "mi4":
+                osettings.adapter.type = AdapterType.mi4;
+                break;
             default:
                 write("Invalid adapter. Available adapters listed below.\n\n");
                 cliListAdapters();
@@ -61,8 +67,12 @@ void main(string[] args)
             
         },*/
         "list-adapters",  `List available adapters`, &cliListAdapters,
-        "log",      `Logger: Enable logging to stderr`, &osettings.logStderr,
-        "logfile",  `Logger: Enable logging to file path`, &osettings.logFile,
+        "log",      `Logger: Enable logging to stderr`, {
+            logAddAppender(new ConsoleAppender());
+        },
+        "logfile",  `Logger: Enable logging to file path`, (string _, string path) {
+            logAddAppender(new FileAppender(path));
+        },
         "loglevel", `Logger: Set log level (default=info)`, &osettings.logLevel,
         "ver",      `Show only version and quit`, {
             writeln(PROJECT_VERSION);
@@ -103,41 +113,15 @@ void main(string[] args)
     }
     
     // Setup logger
-    if (osettings.logStderr)
-        logAddAppender(new ConsoleAppender());
-    if (osettings.logFile)
-        logAddAppender(new FileAppender(osettings.logFile));
     logSetLevel(osettings.logLevel);
     logInfo("New instance with options %s", osettings);
     
-    // Select main adapter with transport
-    Adapter adapter = void;
-    final switch (osettings.adapter.type) with (AdapterType) {
-    case dap:
-        adapter = new DAPAdapter(new HTTPStdioTransport());
-        break;
-    case mi, mi2, mi3, mi4:
-        adapter = new MIAdapter(new StdioTransport(), miVersion(osettings.adapter.type));
-        break;
-    }
-    
-    // Extra parameters for Aliceserver right now are for the target
-    if (args.length > 1)
-    {
-        targetExec(args[1]);
-        
-        if (args.length > 2)
-        {
-            targetExecArgs(args[2..$]);
-        }
-    }
-    
     // Run server
-    try startServer(adapter);
+    try startServer(osettings);
     catch (Exception ex)
     {
-        debug logCritical("Unhandled Exception: %s", ex);
-        else  logCritical(`/!\ Critical: %s`, ex.msg);
+        debug logCritical("Unhandled exception: %s", ex);
+        else  logCritical(`/!\ Unhandled exception: %s`, ex.msg);
         exit(2);
     }
 }

@@ -10,25 +10,30 @@ import transports;
 
 class StdioTransport : ITransport
 {
-    this()
-    {
-        
-    }
-    
     string name()
     {
         return "stdio";
     }
     
+    ubyte[] readline()
+    {
+        return cast(ubyte[])stdin.readln();
+    }
+    
+    ubyte[] read(size_t size)
+    {
+        if (size > buffer.length)
+            buffer.length = size;
+        return stdin.rawRead(buffer[0..size]);
+    }
+    
     void send(ubyte[] data)
     {
-        // NOTE: rawWrite sets stdout to _O_BINARY on Windows
+        // NOTE: rawWrite automatically sets stdout to _O_BINARY on Windows
         stdout.rawWrite(data);
         stdout.flush();
     }
     
-    ubyte[] receive()
-    {
-        return cast(ubyte[])readln();
-    }
+private:
+    ubyte[] buffer;
 }

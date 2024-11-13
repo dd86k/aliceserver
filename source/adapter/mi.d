@@ -11,21 +11,18 @@
 /// License: BSD-3-Clause-Clear
 module adapter.mi;
 
-import adapters, types;
-import debuggers : IDebugger;
+import adapters;
 import config;
 import logging;
-import server : AdapterType, targetExec, targetExecArgs;
+import server : AdapterType;
 import std.array : replace;
 import std.ascii;
 import std.conv : to;
-import std.file : chdir;
 import std.format : format;
 import std.string : indexOf;
 import std.outbuffer : OutBuffer;
 import std.string : stripRight;
 import util.shell : shellArgs;
-import util.mi;
 
 // NOTE: GDB/MI versions and commmands
 //
@@ -78,7 +75,7 @@ import util.mi;
 //
 //       On Linux, if separateConsole is defined, `inferior-tty-set TTY` is executed.
 
-enum MIType : char
+/*enum MIKind : char
 {
     // Replies
     // "running" (exec running), "done" (task performed successfully),
@@ -97,7 +94,7 @@ enum MIType : char
     
     // Input
     command = '-',
-}
+}*/
 
 private immutable string gdbPrompt = "(gdb)\n";
 private immutable string msgDone = "^done\n";
@@ -124,28 +121,25 @@ unittest
     assert(formatCString("Thing: \"hi\"\n") == `Thing: \"hi\"\n`);
 }
 
-final class MIAdapter : Adapter
+final class MIAdapter : IAdapter
 {
-    private enum {
-        SEND,   /// Request is ready to be returned
-        SKIP,   /// Skip request
+    private enum
+    {
+        CONTINUE,
+        QUIT,
     }
     
-    this(ITransport t, int version_ = 2)
+    this(AdapterType miver)
     {
-        super(t);
-        
-        // Right now, all versions do the same things, for now
-        switch (version_) {
-        case 1: version_ = 4; goto case 4;
-        case 2: break; // TODO: MI version 2 specific command behavior
-        case 3: break; // TODO: MI version 3 specific command behavior
-        case 4: break; // TODO: MI version 4 specific command behavior
+        switch (miver) with (AdapterType) {
+        case mi:  goto case mi4;
+        case mi2: miversion = 2; break;
+        case mi3: miversion = 3; break;
+        case mi4: miversion = 4; break;
         default:
             throw new Exception("Unsupported MI version");
         }
         
-        miversion = version_;
         // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
@@ -171,21 +165,22 @@ final class MIAdapter : Adapter
         commands["exec-run"] =
         commands["exec"] =
         (string[] args) {
-            request.type = AdapterRequestType.run;
-            return SEND;
+            // TODO: run events
+            success(`^running`);
+            return CONTINUE;
         };
         // Resume process execution from a stopped state.
         commands["exec-continue"] =
         commands["continue"] =
         (string[] args) {
-            request.type = AdapterRequestType.continue_;
-            return SEND;
+            debugger.continue_(current_tid);
+            return CONTINUE;
         };
         // Terminate process.
         commands["exec-abort"] =
         (string[] args) {
-            request.type = AdapterRequestType.terminate;
-            return SEND;
+            debugger.terminate();
+            return QUIT;
         };
         // attach PID
         // Attach debugger to process by its ID.
@@ -194,21 +189,23 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterError("Missing process-id argument."));
-                return SKIP;
+                error("Missing process-id argument.");
+                return CONTINUE;
             }
             
             string pidstr = args[0];
-            try request.attachOptions.pid = to!uint(pidstr);
+            int pid = void;
+            try pid = to!int(pidstr);
             catch (Exception ex)
             {
-                reply(AdapterError(format("Illegal process-id: '%s'.", pidstr)));
-                return SKIP;
+                error(text("Illegal process id: '", pidstr, "'."));
+                return CONTINUE;
             }
             
-            request.type = AdapterRequestType.attach;
-            request.attachOptions.run = true;
-            return SEND;
+            debugger.attach(pid);
+            // TODO: run events
+            success(`^running`);
+            return CONTINUE;
         };
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
@@ -216,15 +213,15 @@ final class MIAdapter : Adapter
         commands["gdb-detach"] =
         commands["detach"] =
         (string[] args) {
-            request.type = AdapterRequestType.detach;
-            return SEND;
+            debugger.detach();
+            return CONTINUE;
         };
         // -target-disconnect
         // Disconnect from remote target.
         commands["target-disconnect"] =
         (string[] args) {
-            request.type = AdapterRequestType.detach;
-            return SEND;
+            debugger.detach();
+            return CONTINUE;
         };
         // target TYPE [OPTIONS]
         // Set target parameters.
@@ -232,8 +229,8 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterError("Need target type"));
-                return SKIP;
+                error("Need target type");
+                return CONTINUE;
             }
             
             string targetType = args[0];
@@ -241,17 +238,17 @@ final class MIAdapter : Adapter
             case "exec":
                 if (args.length < 2)
                 {
-                    reply(AdapterError("Need target executable path"));
-                    return SKIP;
+                    error("Need target executable path");
+                    return CONTINUE;
                 }
                 
-                targetExec( args[1].dup );
-                reply(AdapterReply());
+                exec_path = args[1].dup;
+                success();
                 break;
             default:
-                reply(AdapterError(format("Invalid target type: %s", targetType)));
+                error(text("Invalid target type: ", targetType));
             }
-            return SKIP;
+            return CONTINUE;
         };
         // file-exec-and-symbols PATH
         // (gdb, lldb) Set target path and symbols as the same
@@ -259,22 +256,22 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterError("Need target executable path"));
-                return SKIP;
+                error("Need target executable path");
+                return CONTINUE;
             }
             
-            targetExec( args[0].dup );
-            reply(AdapterReply());
-            return SKIP;
+            exec_path = args[0].dup;
+            success();
+            return CONTINUE;
         };
         // -exec-arguments ARGS
         // Set target arguments.
         commands["exec-arguments"] =
         (string[] args) {
             // If arguments given, set, otherwise, clear.
-            targetExecArgs(args.length > 0 ? args[0..$].dup : null);
-            reply(AdapterReply());
-            return SKIP;
+            exec_args = args.length > 0 ? args[0..$].dup : null;
+            success();
+            return CONTINUE;
         };
         // -environment-cd PATH
         // Set debugger directory.
@@ -282,20 +279,22 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterError("Missing PATH directory."));
-                return SKIP;
+                error("Missing directory path.");
+                return CONTINUE;
             }
             
             // NOTE: Ultimately, the server should be the one controlling these requests
+            /* TODO: -environment-cd
             try chdir(args[0]);
             catch (Exception ex)
             {
                 reply(AdapterError(ex.msg));
                 return SKIP;
             }
+            */
             
-            reply(AdapterReply());
-            return SKIP;
+            success();
+            return CONTINUE;
         };
         // -thread-info [TID]
         // Get a list of thread and information associated with each thread.
@@ -341,23 +340,22 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterReply());
-                return SKIP;
+                success();
+                return CONTINUE;
             }
             
             string showCommand = args[0];
             switch (showCommand) {
             case "version":
                 static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
-                send(APPVERSION);
-                send(msgDone);
-                send(gdbPrompt);
-                return SKIP;
+                transport.send(cast(ubyte[])APPVERSION);
+                success();
+                return CONTINUE;
             default:
             }
             
-            reply(AdapterError(format(`Unknown show command: "%s"`, showCommand)));
-            return SKIP;
+            error(text(`Unknown show command: '`, showCommand, `'`));
+            return CONTINUE;
         };
         // -info-gdb-mi-command COMMAND
         // Sends information about the MI command, if it exists.
@@ -371,46 +369,80 @@ final class MIAdapter : Adapter
         (string[] args) {
             if (args.length < 1)
             {
-                reply(AdapterError("Usage: -info-gdb-mi-command MI_COMMAND_NAME"));
-                return SKIP;
+                error("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
+                return CONTINUE;
             }
             MIValue command;
             command["exists"] = cast(bool)((args[0] in commands) != null);
-            MIValue r;
-            r["command"] = command;
-            reply(AdapterReply(r.toString()));
-            return SKIP;
+            MIValue m;
+            m["command"] = command;
+            success(m);
+            return CONTINUE;
         };
+        // -list-features
         // List debugger features
         // gdb 13.1 example: ^done,features=["example","python"]
+        // Features (noted 2024-11-13, see §27.23 GDB/MI Support Commands):
+        // frozen-varobjs
+        //   Indicates support for the -var-set-frozen command, as well as
+        //   possible presence of the frozen field in the output of -varobj-create.
+        // pending-breakpoints
+        //   Indicates support for the -f option to the -break-insert command.
+        // python
+        //   Indicates Python scripting support, Python-based pretty-printing
+        //   commands, and possible presence of the ‘display_hint’ field in the
+        //   output of -var-list-children 
+        // thread-info
+        //   Indicates support for the -thread-info command. 
+        // data-read-memory-bytes
+        //   Indicates support for the -data-read-memory-bytes and the
+        //   -data-write-memory-bytes commands.
+        // breakpoint-notifications
+        //   Indicates that changes to breakpoints and breakpoints created
+        //   via the CLI will be announced via async records.
+        // ada-task-info
+        //   Indicates support for the -ada-task-info command. 
+        // language-option
+        //   Indicates that all GDB/MI commands accept the --language option.
+        // info-gdb-mi-command
+        //   Indicates support for the -info-gdb-mi-command command.
+        // undefined-command-error-code
+        //   Indicates support for the "undefined-command" error code in error
+        //   result records, produced when trying to execute an undefined GDB/MI
+        //   command (see GDB/MI Result Records). 
+        // exec-run-start-option
+        //   Indicates that the -exec-run command supports the --start option
+        //   (see GDB/MI Program Execution).
+        // data-disassemble-a-option
+        //   Indicates that the -data-disassemble command supports the -a option
+        //   (see GDB/MI Data Manipulation). 
+        // simple-values-ref-types
+        //   Indicates that the --simple-values argument to the -stack-list-arguments,
+        //   -stack-list-locals, -stack-list-variables, and -var-list-children commands
+        //   takes reference types into account: that is, a value is considered simple
+        //   if it is neither an array, structure, or union, nor a reference to an
+        //   array, structure, or union. 
         commands["list-features"] =
         (string[] args) {
-            // See §27.23 GDB/MI Support Commands for list.
-            send("^done,features=[]\n");
-            send(gdbPrompt);
-            return SKIP;
+            transport.send(cast(ubyte[])"^done,features=[]\n");
+            return CONTINUE;
         };
         // Ignore list
         commands["gdb-set"] =
         commands["inferior-tty-set"] =
-        (string[] args) { return SKIP; };
+        (string[] args) { return CONTINUE; };
         // Close debugger instance
         commands["gdb-exit"] =
         commands["quit"] =
         commands["q"] =
         (string[] args) {
-            request.type = AdapterRequestType.close;
             // NOTE: gdb-mi when attached does not terminate.
             //       Therefore, the preference is not to terminate.
-            request.closeOptions.terminate = false;
-            return SEND;
+            return QUIT;
         };
-        
-        send(gdbPrompt); // Ready!
     }
     
     // Return short name of this adapter
-    override
     string name()
     {
         final switch (miversion) {
@@ -420,26 +452,42 @@ final class MIAdapter : Adapter
         }
     }
     
-    override
-    AdapterRequest listen()
+    void loop(IDebugger d, ITransport t)
     {
+        debugger = d;
+        transport = t;
+        
+        debugger.hook(&event);
+        
+        // OutBufer .clear() sets offset to 0
+        // Appender .clear() clears all data
+        scope OutBuffer tracebuf = new OutBuffer();
+        tracebuf.reserve(512);
+        
+        outbuf = new OutBuffer();
+        outbuf.reserve(1024);
+        errbuf = new OutBuffer();
+        errbuf.reserve(1024);
+        
     Lread:
-        ubyte[] buffer = receive();
-        string fullrequest = cast(immutable(char)[])buffer;
+        sendPrompt(); // Ready!
+        string fullrequest = cast(string)transport.readline();
         
         // Parse request
-        MIRequest command = parseMIRequest(fullrequest);
+        request = parseMIRequest(fullrequest);
         
         // GDB sends the trace of the command as an event
-        // NOTE: GDB does not echo commands when they aren't MI-related
-        //       Examples that do emit trace: "q", not found commands
-        //       Examples that don't: "-info-gdb-mi-command"
+        // NOTE: GDB behavior on traces
+        //       Seem to be on "shell" commands (and not MI commands)
+        //       Does:    "q", "quit", "i-dont-exist"
+        //       Doesn't: "-gdb-exit", "-info-gdb-mi-command", "-i-dont-exist"
+        if (request.line && request.line[0] != '-')
         {
-            scope OutBuffer tracebuf = new OutBuffer();
+            tracebuf.clear();
             tracebuf.write("&\"");
-            tracebuf.write(formatCString(command.line));
+            tracebuf.write( formatCString(request.line) );
             tracebuf.write("\"\n");
-            send(tracebuf.toBytes());
+            transport.send(tracebuf.toBytes());
         }
         
         // GDB behavior:
@@ -448,78 +496,30 @@ final class MIAdapter : Adapter
         // - "22":  valid
         // - "22-": invalid (not found)
         // - "22 help": valid
-        if (command.name == "") // note: "-" -> "" by command parser
+        if (request.name == "\n") // command parser removes "-"
         {
-            reply(AdapterReply());
+            success();
             goto Lread;
         }
         
         // Command exists, get request out of that
-        if (int delegate(string[])* fq = command.name in commands)
+        int delegate(string[])* fq = request.name in commands;
+        if (fq == null)
         {
-            request = AdapterRequest.init;
-            request.id = command.id;
-            if ((*fq)(command.args))
-                goto Lread;
-            return request;
+            error(text(`Unknown request: "`, request.name, `"`));
+            goto Lread;
         }
         
-        reply(AdapterError(format(`Unknown request: "%s"`, command.name)));
+        try if ((*fq)(request.args) == QUIT)
+            return;
+        catch (Exception ex)
+            error(ex.msg);
         goto Lread;
     }
     
-    override
-    void reply(AdapterReply msg)
+    void event(ref DebuggerEvent event)
     {
-        // NOTE: stdio transport flushes on each send
-        //       clients are expected to read until newlines, so emulate that
-        
-        scope OutBuffer buffer = new OutBuffer();
-        buffer.reserve(2048);
-        
-        // Attach token id to result record
-        if (request.id)
-            buffer.writef("%u", request.id);
-        
-        // Some requests may emit different result words
-        switch (request.type) {
-        case AdapterRequestType.launch: // Compability
-        case AdapterRequestType.run: // Compability
-            buffer.write("^running");
-            break;
-        default:
-            buffer.write("^done");
-        }
-        
-        if (msg.details)
-        {
-            buffer.write(',');
-            buffer.write(msg.details);
-        }
-        
-        buffer.write('\n');
-        
-        send(buffer.toBytes());
-        send(gdbPrompt); // Ready
-    }
-    
-    override
-    void reply(AdapterError msg)
-    {
-        logError(msg.message);
-        string cmsg = formatCString( msg.message );
-        // ^error,msg="Undefined command: \"%s\"."\n
-        send(request.id ?
-            format("%d^error,msg=\"%s\"\n", request.id, cmsg) :
-            format("^error,msg=\"%s\"\n", cmsg)
-        );
-        send(gdbPrompt);
-    }
-    
-    override
-    void event(AdapterEvent event)
-    {
-        switch (event.type) with (AdapterEventType) {
+        switch (event.type) with (DebuggerEventType) {
         // - ~"Starting program: example.exe \n"
         // - =library-loaded,id="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
         //   target-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
@@ -532,7 +532,7 @@ final class MIAdapter : Adapter
             break;*/
         // - *running,thread-id="all"
         case continued:
-            send("*running\n");
+            transport.send(cast(ubyte[])"*running\n");
             break;
         // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
         //   frame={addr="0x08048564",func="main",
@@ -542,96 +542,154 @@ final class MIAdapter : Adapter
         // - *stopped,reason="signal-received",signal-name="SIGSEGV",
         //   signal-meaning="Segmentation fault",frame={addr="0x0000000000000000",
         //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
+        // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
         case stopped:
-            MIValue frame;
-            frame["addr"] = format("%#x", event.stopped.frame.arch);
-            frame["func"] = event.stopped.frame.func is null ? "??" : event.stopped.frame.func;
-            frame["args"] = event.stopped.frame.args;
-            frame["arch"] = toMIArch(event.stopped.frame.arch);
-            MIValue root;
-            root["reason"] = toMIStoppedReason(event.stopped.reason);
-            //root["signal-name"] = "SIGSEGV";
-            //root["signal-meaning"] = "Segmentation fault";
-            root["frame"] = frame;
-            root["thread-id"] = event.stopped.threadId;
-            root["stopped-threads"] = "all";
-            send(toMessage("*stopped", root));
+            MIValue miframe;
+            try
+            {
+                DebuggerFrameInfo frame = debugger.frame(event.stopped.threadId);
+                miframe["addr"] = format("%#x", frame.address);
+                miframe["func"] = frame.funcname ? frame.funcname : "??";
+                miframe["args"] = frame.funcargs;
+                miframe["arch"] = toMIArch(frame.arch);
+            }
+            catch (Exception ex)
+            {
+                // Frame info unavailable, but MI requires it
+                miframe["addr"] = "0x0";
+                miframe["func"] = "??";
+                miframe["args"] = [];
+                miframe["arch"] = toMIArch( TARGET_ARCH );
+            }
+            
+            MIValue mi;
+            mi["reason"] = toMIStoppedReason(event.stopped.reason);
+            mi["signal-name"] = toMISignalName(event.stopped.fault);
+            mi["signal-meaning"] = toMISignalDesc(event.stopped.fault);
+            mi["frame"] = miframe;
+            mi["thread-id"] = event.stopped.threadId;
+            mi["stopped-threads"] = "all";
+            transport.send(cast(ubyte[])mi.toMessage("*stopped"));
             break;
         // - *stopped,reason="exited-normally"
         // - *stopped,reason="exited",exit-code="01"
-        // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
         case exited:
+            MIValue m;
             if (event.exited.code)
-                send(format("*stopped,reason=\"exited\",exit-code=\"%d\"\n", event.exited.code));
+            {
+                m["reason"] = "exited";
+                // TODO: Check if exit-code is octal since it has a 0 prefix
+                m["exit-code"] = event.exited.code;
+            }
             else
-                send("*stopped,reason=\"exited-normally\"\n");
+                m["reason"] = "exited-normally";
+            
+            transport.send(cast(ubyte[])m.toMessage("*stopped"));
             break;
         default:
             logWarn("Unimplemented event type: %s", event.type);
         }
     }
     
-    override
-    void close()
-    {
-        // When a quit request is sent, GDB simply quits without confirming,
-        // since the client is supposed to do the confirming part.
-        //
-        // So, do nothing!
-    }
-    
 private:
+    ITransport transport;
+    IDebugger debugger;
     // NOTE: Virtual functions inside a constructor may lead to unexpected results
     //       in the derived classes - At leat marking the class as final prevents this
     /// AA of implemented commands
     int delegate(string[] args)[string] commands;
+    /// Current request
+    MIRequest request;
+    /// 
+    int current_tid;
     /// Current MI version in use
     int miversion;
-    /// Current request
-    AdapterRequest request;
-}
-
-// Check MI version out of adapter type
-int miVersion(AdapterType adp)
-{
-    switch (adp) with (AdapterType) { // same order as gdb
-    case mi4, mi:   return 4;
-    case mi3:       return 3;
-    case mi2:       return 2;
-    default:        return 0;
+    
+    string exec_path;
+    string[] exec_args;
+    string exec_dir;
+    
+    OutBuffer outbuf;
+    OutBuffer errbuf;
+    
+    void sendPrompt()
+    {
+        transport.send(cast(ubyte[])"(gdb)\n");
+    }
+    
+    void success(string prefix = null)
+    {
+        outbuf.clear();
+        
+        // Attach token id to result record
+        if (request.id)
+            outbuf.write(text(request.id));
+        
+        // launch and attach requests have "^running" instead of "^done"
+        outbuf.write(prefix ? prefix : "^done");
+        outbuf.write('\n');
+        
+        transport.send(outbuf.toBytes());
+    }
+    
+    void success(ref MIValue m)
+    {
+        outbuf.clear();
+        
+        // Attach token id to result record
+        if (request.id)
+            outbuf.write(text(request.id));
+        
+        outbuf.write("^done,");
+        outbuf.write(m.toString());
+        outbuf.write('\n');
+        
+        transport.send(outbuf.toBytes());
+    }
+    
+    void error(string message)
+    {
+        logError(message);
+        
+        errbuf.clear();
+        
+        // 123^error,msg="Undefined command: \"test\"."\n
+        if (request.id) errbuf.write(text(request.id));
+        errbuf.write("^error,msg=\"");
+        errbuf.write( formatCString(message) );
+        errbuf.write("\"\n");
+        
+        transport.send(errbuf.toBytes());
     }
 }
-unittest
-{
-    // Valid MI versions
-    assert(miVersion(AdapterType.mi2) == 2);
-    assert(miVersion(AdapterType.mi3) == 3);
-    assert(miVersion(AdapterType.mi4) == 4);
-    // Invalid MI verisons
-    assert(miVersion(AdapterType.dap) == 0);
-}
 
-private
+private:
+
+deprecated
 string toMessage(string prefix, MIValue miobj)
 {
     return prefix~","~miobj.toString()~"\n";
 }
 
-private
-string toMIArch(MachineArchitecture arch)
+string toMIArch(Architecture arch)
 {
+    // objdump: supported architectures: i386 i386:x86-64 i386:x64-32 i8086 i386:intel
+    // i386:x86-64:intel i386:x64-32:intel iamcu iamcu:intel aarch64 aarch64:llp64
+    // aarch64:ilp32 aarch64:armv8-r arm armv2 armv2a armv3 armv3m armv4 armv4t armv5
+    // armv5t armv5te xscale ep9312 iwmmxt iwmmxt2 armv5tej armv6 armv6kz armv6t2 armv6k
+    // armv7 armv6-m armv6s-m armv7e-m armv8-a armv8-r armv8-m.base armv8-m.main
+    // armv8.1-m.main armv9-a arm_any
     final switch (arch) {
-    case MachineArchitecture.i386: return "i386";
-    case MachineArchitecture.x86_64: return "i386:x86_64";
-    case MachineArchitecture.AArch32: return "??";
-    case MachineArchitecture.AArch64: return "??";
+    case Architecture.i386:     return "i386";
+    case Architecture.x86_64:   return "i386:x86_64";
+    case Architecture.AArch32:  return "arm";
+    case Architecture.AArch64:  return "aarch64";
     }
 }
 
-private
-string toMIStoppedReason(AdapterEventStoppedReason reason)
+string toMIStoppedReason(DebuggerStopReason reason)
 {
-    final switch (reason) with (AdapterEventStoppedReason) {
+    final switch (reason) with (DebuggerStopReason) {
     case step:
         return "step";
     case breakpoint:
@@ -648,19 +706,41 @@ string toMIStoppedReason(AdapterEventStoppedReason reason)
     }
 }
 
-private
+string toMISignalName(DebuggerExceptionType ex)
+{
+    switch (ex) with (DebuggerExceptionType) {
+    case accessViolation:
+        return "SIGSEGV";
+    default:
+        return "unknown";
+    }
+}
+
+string toMISignalDesc(DebuggerExceptionType ex)
+{
+    switch (ex) with (DebuggerExceptionType) {
+    case accessViolation:
+        return "Segmentation fault";
+    default:
+        return "unknown";
+    }
+}
+
 struct MIRequest
 {
     uint id;        /// Request ID
+    
+    // I don't know why I separated command name from the list of arguments,
+    // maybe I saw some sort of appeal as a name of a function with its
+    // parameters?
     string name;    /// Command name
     string[] args;  /// Command arguments
     
-    string line;    /// Full command line
+    string line;    /// Full command line, without request ID
 }
 
 /// Parse the command 
 // Throws: ConvOverflowException from `to` template
-private
 MIRequest parseMIRequest(string command)
 {
     MIRequest mi;
@@ -756,8 +836,9 @@ unittest
     assert(mi.line == `command argument "big argument"`);
     
     // Test malformed requests
-    
-    // NOTE: Supporting commands with whitespaces before the command name is not currently a priority
+    //
+    // Currently, supporting commands with whitespaces before the command name
+    // is not a priority.
     
     mi = parseMIRequest(``);
     assert(mi.id   == 0);
@@ -799,4 +880,303 @@ unittest
     assert(mi.id   == 33);
     assert(mi.name == "");
     assert(mi.args is null);
+}
+
+import std.array : Appender, appender; // std.json uses this for toString()
+import std.conv : text;
+import std.traits : isArray;
+
+enum MIType : ubyte
+{
+    null_,
+    string_,
+    boolean_,
+    
+    integer,
+    uinteger,
+    floating,
+    
+    object_,
+    array,
+}
+
+struct MIValue
+{
+    string str()
+    {
+        if (type != MIType.string_)
+            throw new Exception(text("Not a string, it is ", type));
+        return store.string_;
+    }
+    string str(string v)
+    {
+        type = MIType.string_;
+        return store.string_ = v;
+    }
+    
+    bool boolean()
+    {
+        if (type != MIType.boolean_)
+            throw new Exception(text("Not a boolean, it is ", type));
+        return store.boolean;
+    }
+    bool boolean(bool v)
+    {
+        type = MIType.boolean_;
+        return store.boolean = v;
+    }
+    
+    long integer()
+    {
+        if (type != MIType.integer)
+            throw new Exception(text("Not an integer, it is ", type));
+        return store.integer;
+    }
+    long integer(long v)
+    {
+        type = MIType.integer;
+        return store.integer = v;
+    }
+    
+    // Get value by index
+    ref typeof(this) opIndex(return scope string key)
+    {
+        if (type != MIType.object_)
+            throw new Exception(text("Attempted to index non-object, it is ", type));
+        
+        if ((key in store.object_) is null)
+            throw new Exception(text("Value not found with key '", key, "'"));
+        
+        return store.object_[key];
+    }
+    
+    // Set value by key index
+    void opIndexAssign(T)(auto ref T value, string key)
+    {
+        // Only objects can have properties set in them
+        switch (type) with (MIType) {
+        case object_, null_: break;
+        default: throw new Exception(text("MIValue must be object or null, it is ", type));
+        }
+        
+        MIValue mi = void;
+        
+        static if (is(T : typeof(null)))
+        {
+            mi.type = MIType.null_;
+        }
+        else static if (is(T : string))
+        {
+            mi.type = MIType.string_;
+            mi.store.string_ = value;
+        }
+        else static if (is(T : bool)) // Avoid int-promotion stunts
+        {
+            mi.type = MIType.boolean_;
+            mi.store.boolean = value;
+        }
+        else static if (is(T : int) || is(T : long))
+        {
+            mi.type = MIType.integer;
+            mi.store.integer = value;
+        }
+        else static if (is(T : uint) || is(T : ulong))
+        {
+            mi.type = MIType.uinteger;
+            mi.store.uinteger = value;
+        }
+        else static if (is(T : float) || is(T : double))
+        {
+            mi.type = MIType.floating;
+            mi.store.floating = value;
+        }
+        else static if (isArray!T)
+        {
+            mi.type = MIType.array;
+            static if (is(T : void[]))
+            {
+                mi.store.array = []; // empty MIValue[]
+            }
+            else
+            {
+                MIValue[] values = new MIValue[value.length];
+                foreach (i, v; value)
+                {
+                    values[i] = v;
+                }
+                mi.store.array = values;
+            }
+        }
+        else static if (is(T : MIValue))
+        {
+            mi = value;
+        }
+        else static assert(false, "Not implemented for type "~T.stringof);
+        
+        type = MIType.object_;
+        store.object_[key] = mi;
+    }
+    
+    string toString() const
+    {
+        // NOTE: Formatting MI is similar to JSON, except:
+        //       - Field names are not surrounded by quotes
+        //       - All values are string-formatted
+        //       - Root level has no base type
+        switch (type) with (MIType) {
+        case string_:
+            return store.string_;
+        case boolean_:
+            return store.boolean ? "true" : "false";
+        case integer:
+            return text( store.integer );
+        case array:
+            Appender!string str = appender!string;
+            
+            size_t count;
+            foreach (value; store.array)
+            {
+                if (count++)
+                    str.put(`,`);
+                
+                str.put(`"`);
+                str.put(value.toString());
+                str.put(`"`);
+            }
+            
+            return str.data();
+        case object_:
+            Appender!string str = appender!string;
+            
+            size_t count;
+            foreach (key, value; store.object_)
+            {
+                if (count++)
+                    str.put(`,`);
+                
+                char schar = void, echar = void; // start and ending chars
+                switch (value.type) with (MIType) {
+                case object_:
+                    schar = '{';
+                    echar = '}';
+                    break;
+                case array:
+                    schar = '[';
+                    echar = ']';
+                    break;
+                default:
+                    schar = echar = '"';
+                    break;
+                }
+                
+                str.put(key);
+                str.put('=');
+                str.put(schar);
+                str.put(value.toString());
+                str.put(echar);
+            }
+            
+            return str.data();
+        default:
+            throw new Exception(text("toString type unimplemented for: ", type));
+        }
+    }
+    
+    string toMessage(string prefix)
+    {
+        return prefix~","~toString()~"\n";
+    }
+    
+private:
+    union Store
+    {
+        string string_;
+        long integer;
+        ulong uinteger;
+        double floating;
+        bool boolean;
+        MIValue[string] object_;
+        MIValue[] array;
+    }
+    Store store;
+    MIType type;
+}
+unittest
+{
+    // Type testing
+    {
+        MIValue mistring;
+        mistring["key"] = "value";
+        assert(mistring["key"].str == "value");
+        assert(mistring.toString() == `key="value"`);
+    }
+    {
+        MIValue mibool;
+        mibool["boolean"] = true;
+        assert(mibool["boolean"].boolean == true);
+        assert(mibool.toString() == `boolean="true"`);
+    }
+    {
+        MIValue miint;
+        miint["int"] = 2;
+        assert(miint["int"].integer == 2);
+        assert(miint.toString() == `int="2"`);
+    }
+    
+    /*
+    ^done,threads=[
+    {id="2",target-id="Thread 0xb7e14b90 (LWP 21257)",
+    frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",
+            args=[]},state="running"},
+    {id="1",target-id="Thread 0xb7e156b0 (LWP 21254)",
+    frame={level="0",addr="0x0804891f",func="foo",
+            args=[{name="i",value="10"}],
+            file="/tmp/a.c",fullname="/tmp/a.c",line="158",arch="i386:x86_64"},
+            state="running"}],
+    current-thread-id="1"
+    */
+    
+    import std.algorithm.searching : canFind, count, startsWith, endsWith; // Lazy & AA will sort keys
+    
+    MIValue t2;
+    t2["id"] = 2;
+    t2["thread-id"] = "Thread 0xb7e14b90 (LWP 21257)";
+    t2["state"] = "running";
+    
+    // id="2",target-id="Thread 0xb7e14b90 (LWP 21257)",state="running"
+    string t2string = t2.toString();
+    assert(t2string.canFind(`id="2"`));
+    assert(t2string.canFind(`thread-id="Thread 0xb7e14b90 (LWP 21257)"`));
+    assert(t2string.canFind(`state="running"`));
+    assert(t2string.count(`,`) == 2);
+    
+    MIValue t2frame;
+    t2frame["level"] = 0;
+    t2frame["addr"]  = "0xffffe410";
+    t2frame["func"]  = "__kernel_vsyscall";
+    t2frame["args"]  = [];
+
+    // Test objects in objects
+    MIValue t2t;
+    t2t["frame"] = t2frame;
+    // frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",args=[]}
+    string t2tstring = t2t.toString();
+    assert(t2tstring.canFind(`level="0"`));
+    assert(t2tstring.canFind(`addr="0xffffe410"`));
+    assert(t2tstring.canFind(`func="__kernel_vsyscall"`));
+    assert(t2tstring.canFind(`args=[]`));
+    assert(t2tstring.count(`,`) == 3);
+    assert(t2tstring.startsWith(`frame={`));
+    assert(t2tstring.endsWith(`}`));
+    
+    // Test all
+    t2["frame"] = t2frame;
+    string t2final = t2.toString();
+    assert(t2final.canFind(`id="2"`));
+    assert(t2final.canFind(`thread-id="Thread 0xb7e14b90 (LWP 21257)"`));
+    assert(t2final.canFind(`state="running"`));
+    assert(t2final.canFind(`level="0"`));
+    assert(t2final.canFind(`addr="0xffffe410"`));
+    assert(t2final.canFind(`func="__kernel_vsyscall"`));
+    assert(t2final.canFind(`args=[]`));
 }

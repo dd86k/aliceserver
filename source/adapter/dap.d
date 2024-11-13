@@ -15,12 +15,11 @@ import std.json;
 import std.string : chompPrefix;
 import std.conv : text;
 import std.utf : validate;
-import adapters, types, debuggers;
+import std.conv;
+import std.string;
+import adapters;
 import util.json;
 import ddlogger;
-
-// TODO: Block requests until initialize request and response
-//       And initialize can only been sent once
 
 // NOTE: DAP notes
 //       - Client only sends Requests.
@@ -38,9 +37,9 @@ import ddlogger;
 // client> Sends an attach or spawn request
 
 private
-string eventStoppedReasonString(AdapterEventStoppedReason reason)
+string eventStoppedReasonString(DebuggerStopReason reason)
 {
-    final switch (reason) with (AdapterEventStoppedReason) {
+    final switch (reason) with (DebuggerStopReason) {
     case step:
         return "step";
     case breakpoint:
@@ -78,58 +77,24 @@ struct Capability
 
 private enum PathFormat { path, uri }
 
-class DAPAdapter : Adapter
+class DAPAdapter : IAdapter
 {
-    this(ITransport t)
+    enum
     {
-        super(t);
-        
-        // Print server capabilities
-        string servercap;
-        foreach (ref Capability capability; server.capabilities)
-            if (capability.supported)
-                servercap ~= text(" ", capability.prettyName());
-        if (servercap == string.init)
-            servercap = " none";
-        logInfo("Server capabilities:%s", servercap);
+        CONTINUE,
+        QUIT,
     }
     
-    // Return short name of this adapter
-    override
-    string name()
+    this()
     {
-        return "dap";
-    }
-    
-    // Parse incoming data from client to a message
-    override
-    AdapterRequest listen()
-    {
-    Lread:
-        ubyte[] buffer = receive();
-        
-        request = AdapterRequest.init;
-        
-        // Parse JSON into a message
-        JSONValue j = parseJSON(cast(immutable(char)[])buffer);
-        request.id = cast(int)j["seq"].integer; // Must be 32-bit int
-        string mtype = j["type"].str;
-        if (mtype != "request")
-        {
-            logWarn("Message is not type 'request', but '%s', ignoring", mtype);
-        }
-        
-        const(JSONValue) *pcommand = "command" in j;
-        if (pcommand == null)
-            throw new Exception("'command' field missing");
-        
-        scope mcommand = pcommand.str(); // Validated before Request.init
-        
-        logTrace("command: '%s'", mcommand);
-        switch (mcommand) {
         // Initialize DAP session, server services not required
-        case "initialize":
-            request.type = AdapterRequestType.initializaton;
+        commands["initialize"] =
+        (ref JSONValue j) {
+            if (initialized)
+            {
+                error("Already initialized");
+                return CONTINUE;
+            }
             
             JSONValue jarguments = j["arguments"];
             
@@ -173,83 +138,9 @@ class DAPAdapter : Adapter
                 clientcap = " none";
             logInfo("Client capabilities:%s", clientcap);
             
-            reply(AdapterReply());
-            goto Lread;
-        // Client configuration done, server services not required
-        case "configurationDone":
-            JSONValue jconfigdone;
-            jconfigdone["seq"] = current_seq++;
-            jconfigdone["request_seq"] = request.id;
-            jconfigdone["type"] = "response";
-            jconfigdone["success"] = true;
-            jconfigdone["command"] = "configurationDone";
-            send(jconfigdone);
-            goto Lread;
-        case "launch":
-            request.type = AdapterRequestType.launch;
-            JSONValue jargs;
-            required(j, "arguments", jargs);
-            required(jargs, "path", request.launchOptions.path);
-            request.launchOptions.run = true; // DAP wants to immediately continue
-            break;
-        case "attach":
-            request.type = AdapterRequestType.attach;
-            JSONValue jargs;
-            required(j, "arguments", jargs);
-            required(jargs, "pid", request.attachOptions.pid);
-            request.attachOptions.run = true; // DAP wants to immediately continue
-            break;
-        case "continue":
-            request.type = AdapterRequestType.continue_;
-            JSONValue jargs;
-            required(j, "arguments", jargs);
-            required(jargs, "threadId", request.continueOptions.tid);
-            break;
-        case "disconnect":
-            // "the debug adapter must terminate the debuggee if it was started
-            // with the launch request. If an attach request was used to connect
-            // to the debuggee, then the debug adapter must not terminate the debuggee."
-            request.type = AdapterRequestType.close;
-            if (const(JSONValue) *pjdisconnect = "arguments" in j)
-            {
-                // "Indicates whether the debuggee should be terminated when the
-                // debugger is disconnected.
-                // If unspecified, the debug adapter is free to do whatever it
-                // thinks is best. The attribute is only honored by a debug
-                // adapter if the corresponding capability `supportTerminateDebuggee` is true."
-                optional(pjdisconnect, "terminateDebuggee", request.closeOptions.terminate);
-                // "Indicates whether the debuggee should stay suspended when the
-                // debugger is disconnected.
-                // If unspecified, the debuggee should resume execution. The
-                // attribute is only honored by a debug adapter if the corresponding
-                // capability `supportSuspendDebuggee` is true."
-                // TODO: bool suspendDebuggee (optional)
-                // TODO: bool restart (optional)
-            }
-            break;
-        default:
-            throw new Exception("Invalid request command: "~mcommand);
-        }
-        
-        return request;
-    }
-    
-    override
-    void reply(AdapterReply response)
-    {
-        logTrace("Response=%s", request.type);
-        
-        JSONValue j;
-        j["seq"] = current_seq++;
-        j["request_seq"] = request.id;
-        j["type"] = "response";
-        j["success"] = true;
-        
-        switch (request.type) {
-        case AdapterRequestType.unknown:
-            break;
-        case AdapterRequestType.initializaton:
-            j["command"] = "initialize";
+            initialized = true;
+            
+            JSONValue reply;
             
             JSONValue jcapabilities;
             foreach (ref Capability capability; server.capabilities)
@@ -259,47 +150,177 @@ class DAPAdapter : Adapter
             }
             
             if (jcapabilities.isNull() == false)
-                j["body"] = jcapabilities;
+                reply["body"] = jcapabilities;
             
-            send(j);
-            break;
-        case AdapterRequestType.launch: // Empty reply bodies
-            j["command"] = "launch";
-            break;
-        case AdapterRequestType.attach: // Empty reply bodies
-            j["command"] = "attach";
-            break;
-        default:
-            throw new Exception(text("Reply unimplemented: ", request.type));
+            success(reply);
+            return CONTINUE;
+        };
+        // Client is done configuring itself
+        commands["configurationDone"] =
+        (ref JSONValue j) {
+            success();
+            return CONTINUE;
+        };
+        // Launch process with debugger
+        commands["launch"] =
+        (ref JSONValue j) {
+            if (initialized == false)
+            {
+                error("Uninitialized");
+                return CONTINUE;
+            }
+            JSONValue jargs = required!JSONValue(j, "arguments");
+            string path = required!string(jargs, "path");
+            debugger.launch(path, null, null);
+            return CONTINUE;
+        };
+        // Attach debugger to process
+        commands["attach"] =
+        (ref JSONValue j) {
+            if (initialized == false)
+            {
+                error("Uninitialized");
+                return CONTINUE;
+            }
+            JSONValue jargs = required!JSONValue(j, "arguments");
+            int pid = required!int(jargs, "pid");
+            debugger.attach(pid);
+            return CONTINUE;
+        };
+        // Continue debugging session
+        commands["continue"] =
+        (ref JSONValue j) {
+            if (initialized == false)
+            {
+                error("Uninitialized");
+                return CONTINUE;
+            }
+            JSONValue jargs = required!JSONValue(j, "arguments");
+            int tid = required!int(jargs, "threadId");
+            debugger.continue_(tid);
+            return CONTINUE;
+        };
+        // Disconnect from the debugger"
+        commands["disconnect"] =
+        (ref JSONValue j) {
+            if (initialized == false)
+            {
+                error("Uninitialized");
+                return CONTINUE;
+            }
+            // "the debug adapter must terminate the debuggee if it was started
+            // with the launch request. If an attach request was used to connect
+            // to the debuggee, then the debug adapter must not terminate the debuggee.
+            /+if (const(JSONValue) *jdisconnect = "arguments" in j)
+            {
+                // "Indicates whether the debuggee should be terminated when the
+                // debugger is disconnected.
+                // If unspecified, the debug adapter is free to do whatever it
+                // thinks is best. The attribute is only honored by a debug
+                // adapter if the corresponding capability `supportTerminateDebuggee` is true."
+                bool terminate = optional!bool(jdisconnect, "terminateDebuggee");
+                // "Indicates whether the debuggee should stay suspended when the
+                // debugger is disconnected.
+                // If unspecified, the debuggee should resume execution. The
+                // attribute is only honored by a debug adapter if the corresponding
+                // capability `supportSuspendDebuggee` is true."
+                // TODO: bool suspendDebuggee (optional)
+                // TODO: bool restart (optional)
+            }+/
+            success();
+            return QUIT;
+        };
+    }
+    
+    // Return short name of this adapter
+    string name()
+    {
+        return "dap";
+    }
+    
+    // Parse incoming data from client to a message
+    void loop(IDebugger d, ITransport t)
+    {
+        transport = t;
+        debugger  = d;
+        
+        // Print server capabilities
+        string servercap;
+        foreach (ref Capability capability; server.capabilities)
+            if (capability.supported)
+                servercap ~= text(" ", capability.prettyName());
+        if (servercap == string.init)
+            servercap = " none";
+        logInfo("Server capabilities:%s", servercap);
+        
+        //
+        // Request
+        //
+        
+    Lrequest: // new request
+        size_t content_length;
+        
+        try // reading headers
+        {
+            string[string] headers = readmsg();
+            
+            const(string)* ContentLength = "Content-Length" in headers;
+            if (ContentLength == null)
+                throw new Exception("HTTP missing field: 'Content-Length'");
+            
+            content_length = to!size_t(*ContentLength);
+        }
+        catch (Exception ex)
+        {
+            error(ex.msg);
+            goto Lrequest;
         }
         
-        send(j);
+        string jsonbody = cast(string)transport.read(content_length);
+        
+        // Parse body as JSON
+        JSONValue j = parseJSON(jsonbody);
+        request_id = required!int(j, "seq");
+        string mtype = j["type"].str;
+        if (mtype != "request")
+        {
+            logWarn("Message is not type 'request', but '%s', ignoring", mtype);
+        }
+        
+        // Extract command from its name
+        const(JSONValue) *jcommand = "command" in j;
+        if (jcommand == null)
+        {
+            error("'command' field missing");
+            goto Lrequest;
+        }
+        
+        // Get function from command name
+        request_command = jcommand.str();
+        logTrace("command: '%s'", request_command);
+        int delegate(ref JSONValue) *func = request_command in commands;
+        if (func == null)
+        {
+            error(text("Command not found: '", request_command, ","));
+            goto Lrequest;
+        }
+        
+        // Execute command
+        try if ((*func)(j) == QUIT)
+            return;
+        catch (Exception ex)
+            error(ex.msg);
+        goto Lrequest;
     }
     
-    override
-    void reply(AdapterError error)
-    {
-        logTrace("Error=%s", error.message);
-        
-        JSONValue j;
-        j["seq"] = current_seq++;
-        j["request_seq"] = request.id;
-        j["type"] = "response";
-        j["success"] = false;
-        j["body"] = [ "error": error.message ];
-        
-        send(j);
-    }
-    
-    override
-    void event(AdapterEvent event)
+    void event(ref DebuggerEvent event)
     {
         logTrace("Event=%s", event.type);
         
         JSONValue j;
         j["seq"] = current_seq++;
         
-        switch (event.type) with (AdapterEventType) {
+        switch (event.type) with (DebuggerEventType) {
         case output:
             j["event"] = "output";
             // console  : Client UI debug console, informative only
@@ -313,20 +334,20 @@ class DAPAdapter : Adapter
             break;
         case stopped:
             string reason = void;
-            final switch (event.stopped.reason) with (AdapterEventStoppedReason) {
-            case step:          reason =  "step"; break;
-            case breakpoint:    reason =  "breakpoint"; break;
-            case exception:     reason =  "exception"; break;
-            case pause:         reason =  "pause"; break;
-            case entry:         reason =  "entry"; break;
-            case goto_:         reason =  "goto"; break;
-            case functionBreakpoint:    reason =  "function breakpoint"; break;
-            case dataBreakpoint:        reason =  "data breakpoint"; break;
-            case instructionBreakpoint: reason =  "instruction breakpoint"; break;
+            final switch (event.stopped.reason) with (DebuggerStopReason) {
+            case step:          reason = "step"; break;
+            case breakpoint:    reason = "breakpoint"; break;
+            case exception:     reason = "exception"; break;
+            case pause:         reason = "pause"; break;
+            case entry:         reason = "entry"; break;
+            case goto_:         reason = "goto"; break;
+            case functionBreakpoint:    reason = "function breakpoint"; break;
+            case dataBreakpoint:        reason = "data breakpoint"; break;
+            case instructionBreakpoint: reason = "instruction breakpoint"; break;
             }
             j["reason"] = reason;
-            j["description"] = event.stopped.description;
-            //j["threadId"] = reason;
+            //j["description"] = event.stopped.description;
+            //j["threadId"] = event.stopped.threadId;
             break;
         case exited:
             j["exitCode"] = event.exited.code;
@@ -334,30 +355,25 @@ class DAPAdapter : Adapter
         default:
             throw new Exception(text("Event unimplemented: ", event.type));
         }
-        
-        send(j);
-    }
-    
-    override
-    void close()
-    {
-        // Send empty reply.
-        // This is to reply to a close request.
-        reply(AdapterReply());
-    }
-    
-    private
-    void send(ref JSONValue json)
-    {
-        super.send(json.toString());
+        reply(j);
     }
     
 private:
-    /// Current serving request.
-    AdapterRequest request;
-    // TODO: Consider updating seq atomically
+    /// 
+    ITransport transport;
+    /// 
+    IDebugger debugger;
+    
+    /// 
+    bool initialized;
     /// Server sequencial ID.
     int current_seq = 1;
+    /// Request ID
+    int request_id = 1;
+    /// Request command name
+    string request_command;
+    /// Implemented commands.
+    int delegate(ref JSONValue)[string] commands;
     
     struct ClientCapabilities
     {
@@ -426,4 +442,72 @@ private:
         ];
     }
     ServerCapabilities server;
+    
+    string[string] readmsg()
+    {
+        string[string] headers;
+        
+    Lentry:
+        // Read one HTTP field
+        string line = strip( cast(string)transport.readline() );
+        logTrace("line: %s", line);
+        if (line.length == 0)
+            return headers;
+        
+        // Get field separator (':')
+        ptrdiff_t fieldidx = indexOf(line, ':');
+        if (fieldidx < 0)
+            throw new Exception("HTTP field delimiter not found");
+        if (fieldidx + 1 >= line.length)
+            throw new Exception("HTTP missing value");
+        
+        // Check field name
+        string field = strip( line[0 .. fieldidx] );
+        string value = strip( line[fieldidx + 1 .. $] );
+        headers[field] = value;
+        
+        goto Lentry;
+    }
+    
+    void reply(ref JSONValue j)
+    {
+        transport.send(cast(ubyte[])j.toString());
+    }
+    
+    void success()
+    {
+        JSONValue j;
+        j["seq"] = current_seq++;
+        j["request_seq"] = request_id;
+        j["command"] = request_command;
+        j["type"] = "response";
+        j["success"] = true;
+        reply(j);
+    }
+    
+    void success(ref JSONValue body_)
+    {
+        JSONValue j;
+        j["seq"] = current_seq++;
+        j["request_seq"] = request_id;
+        j["command"] = request_command;
+        j["type"] = "response";
+        j["success"] = true;
+        j["body"] = body_;
+        reply(j);
+    }
+    
+    void error(string message)
+    {
+        logError("Error=%s", message);
+        
+        JSONValue j;
+        j["seq"] = current_seq++;
+        j["request_seq"] = request_id;
+        j["command"] = request_command;
+        j["type"] = "response";
+        j["success"] = false;
+        j["body"] = [ "error": message ];
+        reply(j);
+    }
 }

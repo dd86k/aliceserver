@@ -1,23 +1,29 @@
-# Aliceserver
+# About Aliceserver
 
-Debugger server supporting the DAP and MI protocols using
-[Alicedbg](https://github.com/dd86k/alicedbg).
+Aliceserver is a debugger server implementing the DAP and MI protocols, using
+[Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
 
-**Major work in progress!** Don't expect it to replace GDB or LLDB any time soon.
+**This is major work in progress!**
+Don't expect it to replace GDB or LLDB any time soon.
 
 Why?
-
 - lldb-mi is no longer available as a prebuilt binary after LLDB 9.0.1.
 - lldb and variants (including lldb-vscode) all require the Python runtime.
 - gdb-mi is fine, but GDC is generally unavailable for Windows.
 - gdb-dap is written in Python and thus requires it.
 - Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
-- Provides future directions for features in Alicedbg.
+- All current solution implement one protocol per binary, leaving some
+  implementation features unavailable.
+- Aliceserver provides future directions for features in Alicedbg.
 
-Use cases:
+Uses:
+- Integrating your favorite text or code editor that implements a debugger UI.
+- Automated debugging integration testing.
 
-- Integrating your favorite text or code editor that implements a debugger UI
-- Automated debugging integration testing
+Planned features:
+- Multi-session support.
+- Multi-session settings (unique session only, new session per connection).
+- Support for UNIX sockets and Windows NamedPipes.
 
 # Implementation Details
 
@@ -25,20 +31,21 @@ Use cases:
 +-------------------------------------------+
 | Aliceserver                               |
 | +---------------------------------------+ |
-| |           Debugger server             | |
+| |                Server                 | |
 | +---------------------------------------+ |
 |      ^               ^            ^       |
-|      v               |            |       |
-| +-----------+        |            |       |
-| | Adapter   |        v            v       |
+|      |               |            |       |
+|      |               v            v       |
+|      |          +----------+ +----------+ |
+|      v          | Adapter  | | Adapter  | |
 | +-----------+   +----------+ +----------+ |
 | | Transport |   | Debugger | | Debugger | |
 +-+-----------+---+----------+-+----------+-+
        ^               ^            ^
        v               v            v
-   +~~~~~~~~~+    +~~~~~~~~~+  +~~~~~~~~~+
-   | Client  |    | Process |  | Process |
-   +~~~~~~~~~+    +~~~~~~~~~+  +~~~~~~~~~+
+   +~~~~~~~~~+    +~~~~~~~~~~+ +~~~~~~~~~~+
+   | Client  |    | Process  | | Process  |
+   +~~~~~~~~~+    +~~~~~~~~~~+ +~~~~~~~~~~+
 ```
 
 Aliceserver is implemented using an Object-Oriented Programming model.
@@ -100,7 +107,7 @@ double-precision floating-point number (IEEE 754 `double`).
 
 DAP has two connection models: Single-session and multi-session.
 - Single-session: Using standard I/O (stdio), a single adapter instance is started.
-- Multi-session: Using TCP/IP, every new connection initiates a new adapter instance.
+- Multi-session: Using TCP/IP, every new connection initiates a new debug session.
 
 Messages are encoded as HTTP messages using the UTF-8 encoding.
 

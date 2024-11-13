@@ -8,6 +8,7 @@ module transports;
 interface ITransport
 {
     string name();
+    ubyte[] readline();
+    ubyte[] read(size_t size);
     void send(ubyte[]);
-    ubyte[] receive();
 }

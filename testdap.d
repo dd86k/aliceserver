@@ -112,13 +112,15 @@ void onEvent(JSONValue j)
 int main(string[] args)
 {
     string oserver;
+    bool otrace;
     
     GetoptResult ores;
     try
     {
         ores = getopt(args,
         "s|server", "Server to use (default=aliceserver)", &oserver,
-        "t|trace",  "Extra verbose messages", &overbose,
+        "t|trace",  "Enable server trace messages", &otrace,
+        "v|verbose","Enable client verbose messages", &overbose,
         );
     }
     catch (Exception ex)
@@ -155,6 +157,7 @@ OPTIONS`, ores.options);
         }
         
         svropts = [ defaultServer ];
+        if (otrace) svropts ~= [ "--log" ];
         break;
     default: // custom
         svropts = [ oserver ];
