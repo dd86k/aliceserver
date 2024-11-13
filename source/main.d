@@ -8,7 +8,7 @@ module main;
 import std.stdio;
 import std.getopt;
 import core.stdc.stdlib : exit;
-import config, server, logging;
+import config, server, ddlogger;
 import adbg.platform : ADBG_VERSION;
 
 // TODO: Attach available adapter types

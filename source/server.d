@@ -11,14 +11,14 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
-import adapters;
-import adapter.dap : DAPAdapter;
-import adapter.mi : MIAdapter;
-import debuggers;
-import debugger.alicedbg : AliceDebugger;
-import transports;
-import transport.stdio;
 import ddlogger;
+import adapter;
+import adapters.dap : DAPAdapter;
+import adapters.mi  : MIAdapter;
+import debugger;
+import debuggers.alicedbg : AliceDebugger;
+import transport;
+import transports.stdio : StdioTransport;
 
 // NOTE: Structure
 //

@@ -7,23 +7,23 @@ Aliceserver is a debugger server implementing the DAP and MI protocols, using
 Don't expect it to replace GDB or LLDB any time soon.
 
 Why?
-- lldb-mi is no longer available as a prebuilt binary after LLDB 9.0.1.
-- lldb and variants (including lldb-vscode) all require the Python runtime.
+- lldb-mi is generally no longer available as a prebuilt binary after LLDB 9.0.1.
+- lldb and variants (including lldb-vscode/lldb-dap) all require the Python runtime.
 - gdb-mi is fine, but GDC is generally unavailable for Windows.
 - gdb-dap is written in Python and thus requires it.
 - Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
-- All current solution implement one protocol per binary, leaving some
-  implementation features unavailable.
+- All transport options in one package.
 - Aliceserver provides future directions for features in Alicedbg.
 
 Uses:
 - Integrating your favorite text or code editor that implements a debugger UI.
 - Automated debugging integration testing.
+- Reusable high-level integration of Alicedbg.
 
 Planned features:
-- Multi-session support.
+- Multi-session support using TCP sockets.
+- Multi-session support using UNIX sockets and Windows NamedPipes.
 - Multi-session settings (unique session only, new session per connection).
-- Support for UNIX sockets and Windows NamedPipes.
 
 # Implementation Details
 
@@ -57,31 +57,40 @@ Aliceserver does not yet support multi-session.
 
 ## Transports
 
-Each transport classes inherit `transport.base.ITransport`.
+Transports handle the transport of data from and to clients.
+
+The medium can include streams, sockets, anything really.
+
+Each transport classes inherit `transport.ITransport`.
 
 Available transports:
 - `StdioTransport`: Implements a transport using standard streams.
-- `HTTPStdioTransport`: Implements a transport using standard streams formatted as HTTP.
-  The payload is given to the adapter to process.
 
 ## Adapters
 
-Used to interface transports, translating requests and events.
+Adapters have the responsability of handling the behavior of the given
+transport and the debugger instances.
 
-Each adapter classes inherit `adapter.base.Adapter` and must be
-constructed with a valid `ITransport` instance.
+Using the transport instance, adapters need to parse requests
+and send formatted replies and events back to the client via the
+transport instance.
+
+Using the debugger instance, adapters need to interpret commands
+and handle debugger events.
+
+After setting up instances, the server calls `IAdapter.loop(ITransport, IDebugger)`.
+
+Each adapter inherits `adapter.IAdapter`.
 
 Available adapters:
-- `DAPAdapter`: Implements an adapter that interprets the Debug Adapter Protocol.
-  - Works best with `HTTPStdioTransport`.
-- `MIAdapter`: Implements an adapter that interprets GDB's Machine Interface.
-  - Works best with `StdioTransport`.
+- `DAPAdapter`: Implements Debug Adapter Protocol as an adapter.
+- `MIAdapter`: Implements GDB's Machine Interface as an adapter.
 
 ## Debuggers
 
 Used to interface a debugger that manipulates processes.
 
-Each debugger classes inherit `debugger.base.IDebugger`.
+Each debugger classes inherit `debugger.IDebugger`.
 
 Right now, only `AlicedbgDebugger` is available as a debugger.
 

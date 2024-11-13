@@ -9,11 +9,8 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapter.mi;
+module adapters.mi;
 
-import adapters;
-import config;
-import logging;
 import server : AdapterType;
 import std.array : replace;
 import std.ascii;
@@ -23,6 +20,11 @@ import std.string : indexOf;
 import std.outbuffer : OutBuffer;
 import std.string : stripRight;
 import util.shell : shellArgs;
+import ddlogger;
+import config;
+import adapter;
+import debugger;
+
 
 // NOTE: GDB/MI versions and commmands
 //
@@ -391,7 +393,7 @@ final class MIAdapter : IAdapter
         // python
         //   Indicates Python scripting support, Python-based pretty-printing
         //   commands, and possible presence of the ‘display_hint’ field in the
-        //   output of -var-list-children 
+        //   output of -var-list-children.
         // thread-info
         //   Indicates support for the -thread-info command. 
         // data-read-memory-bytes
@@ -424,7 +426,11 @@ final class MIAdapter : IAdapter
         //   array, structure, or union. 
         commands["list-features"] =
         (string[] args) {
-            transport.send(cast(ubyte[])"^done,features=[]\n");
+            static immutable string features = "^done,features=["~
+                //"\"thread-info\","~
+                "\"info-gdb-mi-command\""~
+            "]\n";
+            transport.send(cast(ubyte[])features);
             return CONTINUE;
         };
         // Ignore list

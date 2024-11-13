@@ -3,10 +3,10 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapters;
+module adapter;
 
-public import transports : ITransport;
-public import debuggers;
+public import transport : ITransport;
+public import debugger  : IDebugger, DebuggerEvent;
 
 // TODO: string[] capabilities() (for printing purposes)
 

@@ -9,7 +9,7 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module adapter.dap;
+module adapters.dap;
 
 import std.json;
 import std.string : chompPrefix;
@@ -17,15 +17,10 @@ import std.conv : text;
 import std.utf : validate;
 import std.conv;
 import std.string;
-import adapters;
 import util.json;
 import ddlogger;
-
-// NOTE: DAP notes
-//       - Client only sends Requests.
-//       - Server responses to requests with Reponses or Errors.
-//       - Server can send Events at any time.
-//       - DAP is encoded using an "HTTP-like" message with JSON as the body.
+import adapter;
+import debugger;
 
 // NOTE: Single-session DAP flow
 // * client spawns server and communiates via standard streams (stdio)
