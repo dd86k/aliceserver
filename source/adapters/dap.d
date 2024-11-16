@@ -32,21 +32,23 @@ import debugger;
 // client> Sends an attach or spawn request
 
 private
-string eventStoppedReasonString(DebuggerStopReason reason)
+string eventStoppedReasonString(DebuggerStoppedReason reason)
 {
-    final switch (reason) with (DebuggerStopReason) {
-    case step:
-        return "step";
-    case breakpoint:
-        return "breakpoint";
-    case exception:
-        return "exception";
+    final switch (reason) with (DebuggerStoppedReason) {
     case pause:
         return "pause";
     case entry:
         return "entry";
     case goto_:
         return "goto";
+    case exception:
+    case accessViolationException:
+    case illegalInstructionException:
+        return "exception";
+    case step:
+        return "step";
+    case breakpoint:
+        return "breakpoint";
     case functionBreakpoint:
         return "function breakpoint";
     case dataBreakpoint:
@@ -328,19 +330,7 @@ class DAPAdapter : IAdapter
             ];
             break;
         case stopped:
-            string reason = void;
-            final switch (event.stopped.reason) with (DebuggerStopReason) {
-            case step:          reason = "step"; break;
-            case breakpoint:    reason = "breakpoint"; break;
-            case exception:     reason = "exception"; break;
-            case pause:         reason = "pause"; break;
-            case entry:         reason = "entry"; break;
-            case goto_:         reason = "goto"; break;
-            case functionBreakpoint:    reason = "function breakpoint"; break;
-            case dataBreakpoint:        reason = "data breakpoint"; break;
-            case instructionBreakpoint: reason = "instruction breakpoint"; break;
-            }
-            j["reason"] = reason;
+            j["reason"] = eventStoppedReasonString(event.stopped.reason);
             //j["description"] = event.stopped.description;
             //j["threadId"] = event.stopped.threadId;
             break;

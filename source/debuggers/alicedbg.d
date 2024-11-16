@@ -58,6 +58,21 @@ class AliceDebugger : IDebugger
             throw new AlicedbgException();
     }
     
+    int[] threads()
+    {
+        enforceActiveProcess();
+        void *tlist = adbg_thread_list_new(process);
+        if (tlist == null)
+            throw new AlicedbgException();
+        size_t i;
+        adbg_thread_t *thread = void;
+        int[] threads;
+        while ((thread = adbg_thread_list_get(tlist, i++)) != null)
+            threads ~= cast(int)adbg_thread_id(thread);
+        adbg_thread_list_close(tlist);
+        return threads;
+    }
+    
     void terminate()
     {
         enforceActiveProcess();
@@ -187,18 +202,29 @@ string adbgExceptionName(adbg_exception_t *ex)
 }
 
 // Translate Alicedbg exception type to adapter stop reason
-DebuggerStopReason adbgExceptionReason(adbg_exception_t *ex) {
-    switch (ex.type) with (AdbgException) {
-    case Breakpoint:    return DebuggerStopReason.breakpoint;
-    case Step:  return DebuggerStopReason.step;
-    default:    return DebuggerStopReason.exception;
+DebuggerStoppedReason adbgStoppedReason(adbg_exception_t *ex)
+{
+    switch (ex.type) {
+    /*
+    case 0: return DebuggerStoppedReason.functionBreakpoint;
+    case 0: return DebuggerStoppedReason.dataBreakpoint;
+    case 0: return DebuggerStoppedReason.instructionBreakpoint;
+    */
+    case AdbgException.Breakpoint:    return DebuggerStoppedReason.breakpoint;
+    case AdbgException.Step:  return DebuggerStoppedReason.step;
+    /*
+    case 0: return DebuggerStoppedReason.pause;
+    case 0: return DebuggerStoppedReason.entry;
+    case 0: return DebuggerStoppedReason.goto_;
+    */
+    default:    return DebuggerStoppedReason.exception;
     }
 }
 
 // Translate AdbgMachine to MachineArchitcture
 Architecture adbgMachine(AdbgMachine mach)
 {
-    switch (mach)  {
+    switch (mach) {
     case AdbgMachine.i386:      return Architecture.i386;
     case AdbgMachine.amd64:     return Architecture.x86_64;
     case AdbgMachine.arm:       return Architecture.AArch32;
@@ -214,8 +240,8 @@ void adbgEventException(adbg_process_t *proc, void *udata, adbg_exception_t *exc
     DebuggerEvent *event = cast(DebuggerEvent*)udata;
     
     event.type = DebuggerEventType.stopped;
-    event.stopped.reason = adbgExceptionReason(exception);
     event.stopped.threadId = cast(int)adbg_exception_tid(exception);
+    event.stopped.reason = adbgStoppedReason(exception);
 }
 
 // Handle continuations

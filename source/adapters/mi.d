@@ -25,7 +25,6 @@ import config;
 import adapter;
 import debugger;
 
-
 // NOTE: GDB/MI versions and commmands
 //
 //       The most important aspect to be as close to GDB as possible, since LLVM
@@ -98,10 +97,6 @@ import debugger;
     command = '-',
 }*/
 
-private immutable string gdbPrompt = "(gdb)\n";
-private immutable string msgDone = "^done\n";
-private immutable string msgRunning = "^running\n";
-
 /*
 private
 string parseCString(string cstr)
@@ -167,7 +162,7 @@ final class MIAdapter : IAdapter
         commands["exec-run"] =
         commands["exec"] =
         (string[] args) {
-            // TODO: run events
+            debugger.run();
             success(`^running`);
             return CONTINUE;
         };
@@ -298,6 +293,23 @@ final class MIAdapter : IAdapter
             success();
             return CONTINUE;
         };
+        // -thread-list-ids
+        // List thread IDs.
+        // Example:
+        // -thread-list-ids
+        // ^done,thread-ids={thread-id="1",thread-id="2"},current-thread-id="1",number-of-threads="2"
+        // NOTE: MIValue uses an AA, so can't do this weird key repetition
+        /*commands["thread-list-ids"] =
+        (string[] args) {
+            // TODO: -thread-list-ids
+            MIValue mi;
+            foreach (int tid; debugger.threads())
+            {
+                mi["thread-id"] = tid;
+            }
+            
+            return CONTINUE;
+        };*/
         // -thread-info [TID]
         // Get a list of thread and information associated with each thread.
         // Or only a single thread.
@@ -332,7 +344,46 @@ final class MIAdapter : IAdapter
         //   core the thread was last seen on. This field is optional.
         commands["thread-info"] =
         (string[] args) {
-            assert(false, "todo");
+            
+            MIValue miThread(int tid)
+            {
+                MIValue mithread;
+                
+                mithread["id"] = tid;
+                mithread["target-id"] = tid;
+                mithread["frame"] = miFrame(debugger, tid);
+                // TODO: Thread state
+                //       "running" or "stopped"
+                mithread["state"] = "stopped";
+                
+                return mithread;
+            }
+            
+            MIValue[] milist;
+            int selected = args.length > 0 ? to!int(args[0]) : 0;
+            try foreach (int tid; debugger.threads())
+            {
+                // Has TID, show only it
+                // If it does not exist, list is simply empty
+                if (selected && tid == selected)
+                {
+                    milist ~= miThread(tid);
+                    break;
+                }
+                
+                // All TIDs
+                milist ~= miThread(tid);
+            }
+            catch (Exception)
+            {
+                
+            }
+            
+            MIValue mi;
+            mi["threads"] = milist;
+            if (milist.length) mi["current-thread-id"] = current_tid;
+            success(mi);
+            return CONTINUE;
         };
         // show [INFO]
         // Show information about session.
@@ -427,7 +478,7 @@ final class MIAdapter : IAdapter
         commands["list-features"] =
         (string[] args) {
             static immutable string features = "^done,features=["~
-                //"\"thread-info\","~
+                "\"thread-info\","~
                 "\"info-gdb-mi-command\""~
             "]\n";
             transport.send(cast(ubyte[])features);
@@ -516,6 +567,7 @@ final class MIAdapter : IAdapter
             goto Lread;
         }
         
+        // Execute
         try if ((*fq)(request.args) == QUIT)
             return;
         catch (Exception ex)
@@ -550,29 +602,12 @@ final class MIAdapter : IAdapter
         //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
         // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
         case stopped:
-            MIValue miframe;
-            try
-            {
-                DebuggerFrameInfo frame = debugger.frame(event.stopped.threadId);
-                miframe["addr"] = format("%#x", frame.address);
-                miframe["func"] = frame.funcname ? frame.funcname : "??";
-                miframe["args"] = frame.funcargs;
-                miframe["arch"] = toMIArch(frame.arch);
-            }
-            catch (Exception ex)
-            {
-                // Frame info unavailable, but MI requires it
-                miframe["addr"] = "0x0";
-                miframe["func"] = "??";
-                miframe["args"] = [];
-                miframe["arch"] = toMIArch( TARGET_ARCH );
-            }
-            
             MIValue mi;
             mi["reason"] = toMIStoppedReason(event.stopped.reason);
-            mi["signal-name"] = toMISignalName(event.stopped.fault);
-            mi["signal-meaning"] = toMISignalDesc(event.stopped.fault);
-            mi["frame"] = miframe;
+            string[2] siginfo = toMISignalNameDesc(event.stopped.reason);
+            mi["signal-name"] = siginfo[0];
+            mi["signal-meaning"] = siginfo[1];
+            mi["frame"] = miFrame(debugger, event.stopped.threadId);
             mi["thread-id"] = event.stopped.threadId;
             mi["stopped-threads"] = "all";
             transport.send(cast(ubyte[])mi.toMessage("*stopped"));
@@ -693,14 +728,43 @@ string toMIArch(Architecture arch)
     }
 }
 
-string toMIStoppedReason(DebuggerStopReason reason)
+MIValue miFrame(IDebugger debugger, int tid)
 {
-    final switch (reason) with (DebuggerStopReason) {
+    // TODO: Add fields to MI frame
+    //       - file="/tmp/example.c"
+    //       - fullname="/tmp/example.c"
+    //       - line="123"
+    //       - line="123"
+    MIValue miframe;
+    try
+    {
+        DebuggerFrameInfo frame = debugger.frame(tid);
+        miframe["addr"] = format("%#x", frame.address);
+        miframe["func"] = frame.funcname ? frame.funcname : "??";
+        miframe["args"] = frame.funcargs;
+        miframe["arch"] = toMIArch(frame.arch);
+    }
+    catch (Exception ex)
+    {
+        // Frame info unavailable, but MI requires it
+        miframe["addr"] = "0x0";
+        miframe["func"] = "??";
+        miframe["args"] = [];
+        miframe["arch"] = toMIArch( TARGET_ARCH );
+    }
+    return miframe;
+}
+
+string toMIStoppedReason(DebuggerStoppedReason reason)
+{
+    final switch (reason) with (DebuggerStoppedReason) {
     case step:
         return "step";
     case breakpoint:
         return "breakpoint-hit";
     case exception:
+    case accessViolationException:
+    case illegalInstructionException:
         return "signal-received";
     case pause:
     case entry:
@@ -712,23 +776,15 @@ string toMIStoppedReason(DebuggerStopReason reason)
     }
 }
 
-string toMISignalName(DebuggerExceptionType ex)
+string[2] toMISignalNameDesc(DebuggerStoppedReason ex)
 {
-    switch (ex) with (DebuggerExceptionType) {
-    case accessViolation:
-        return "SIGSEGV";
+    switch (ex) with (DebuggerStoppedReason) {
+    case accessViolationException:
+        return [ "SIGSEGV", "Segmentation fault" ];
+    case illegalInstructionException:
+        return [ "SIGILL", "Illegal instruction" ];
     default:
-        return "unknown";
-    }
-}
-
-string toMISignalDesc(DebuggerExceptionType ex)
-{
-    switch (ex) with (DebuggerExceptionType) {
-    case accessViolation:
-        return "Segmentation fault";
-    default:
-        return "unknown";
+        return [ "unknown", "Unknown" ];
     }
 }
 
@@ -753,7 +809,8 @@ MIRequest parseMIRequest(string command)
     
     // TODO: Background syntax
     //       "example&"
-    //       bool background;
+    //       MIRequest: bool background;
+    //       Native Debug was not seen using this.
     
     // Skip space characters
     
@@ -892,7 +949,7 @@ import std.array : Appender, appender; // std.json uses this for toString()
 import std.conv : text;
 import std.traits : isArray;
 
-enum MIType : ubyte
+enum MIType
 {
     null_,
     string_,
@@ -942,6 +999,18 @@ struct MIValue
     {
         type = MIType.integer;
         return store.integer = v;
+    }
+    
+    MIValue[] array()
+    {
+        if (type != MIType.array)
+            throw new Exception(text("Not an array, it is ", type));
+        return store.array;
+    }
+    MIValue[] array(MIValue[] v)
+    {
+        type = MIType.array;
+        return store.array = v;
     }
     
     // Get value by index
@@ -1005,6 +1074,7 @@ struct MIValue
             }
             else
             {
+                // new GC allocation to store and copy values
                 MIValue[] values = new MIValue[value.length];
                 foreach (i, v; value)
                 {
@@ -1118,16 +1188,33 @@ unittest
     }
     {
         MIValue mibool;
-        mibool["boolean"] = true;
-        assert(mibool["boolean"].boolean == true);
-        assert(mibool.toString() == `boolean="true"`);
+        mibool["key"] = true;
+        assert(mibool["key"].boolean == true);
+        assert(mibool.toString() == `key="true"`);
     }
     {
         MIValue miint;
-        miint["int"] = 2;
-        assert(miint["int"].integer == 2);
-        assert(miint.toString() == `int="2"`);
+        miint["key"] = 2;
+        assert(miint["key"].integer == 2);
+        assert(miint.toString() == `key="2"`);
     }
+    {
+        MIValue miarr;
+        miarr["key"] = [];
+        assert(miarr["key"].array == []);
+        assert(miarr.toString() == `key=[]`);
+    }
+    // -thread-list-ids has this weird list:
+    // thread-ids={thread-id="1",thread-id="2"}
+    // Can't do that right now
+    /*{
+        MIValue misub;
+        misub["subkey"] = 2;
+        MIValue miobj;
+        miobj["key"] = misub;
+        //assert(miobj["key"] == misub);
+        assert(miobj.toString() == `key={subkey="2"}`);
+    }*/
     
     /*
     ^done,threads=[

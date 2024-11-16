@@ -56,32 +56,30 @@ enum DebuggerEventType
     thread,
 }
 
-enum DebuggerStopReason
+enum DebuggerStoppedReason
 {
-    /// Source or instruction step.
-    step,
-    /// Source breakpoint.
-    breakpoint,
-    /// Exception.
-    exception,
     /// Process paused.
     pause,
     /// Function or scope entry.
     entry,
     /// Source or instruction goto.
     goto_,
+    /// Exception.
+    exception,
+    /// Access violation exception
+    accessViolationException,
+    /// Illegal instruction exception
+    illegalInstructionException,
+    /// Source or instruction step.
+    step,
+    /// Source breakpoint.
+    breakpoint,
     /// Function breakpoint. (function entry breakpoint?)
     functionBreakpoint,
     /// Data watcher breakpoint.
     dataBreakpoint,
     /// Instruction-level breakpoint.
     instructionBreakpoint,
-}
-
-enum DebuggerExceptionType
-{
-    unknown,
-    accessViolation,
 }
 
 struct DebuggerEvent
@@ -92,12 +90,10 @@ struct DebuggerEvent
     {
         struct AdapterEventStopped
         {
-            /// The reason for the event.
-            DebuggerStopReason reason;
-            /// 
-            DebuggerExceptionType fault;
             /// Thread ID that caused the stop.
             int threadId;
+            /// The reason for the event.
+            DebuggerStoppedReason reason;
         }
         AdapterEventStopped stopped;
         
@@ -136,17 +132,21 @@ interface IDebugger
     /// Params: pid = Process ID.
     void attach(int pid);
     
-    /// Continue thread.
-    void continue_(int tid);
-    
     /// Terminate process.
     void terminate();
     /// Detach debugger from process.
     void detach();
     
-    // Wait for debugger events.
-    // Returns: Debugger event.
-    //DebuggerEvent wait();
+    /// Continue thread.
+    void continue_(int tid);
+    
+    /// List threads of process.
+    int[] threads();
+    
+    /// 
+    DebuggerFrameInfo frame(int tid);
+    
+    // Event stuff
     
     /// 
     void hook(void delegate(ref DebuggerEvent));
@@ -154,7 +154,4 @@ interface IDebugger
     void run();
     /// 
     bool listening();
-    
-    /// 
-    DebuggerFrameInfo frame(int tid);
 }
