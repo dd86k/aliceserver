@@ -194,7 +194,7 @@ class DAPAdapter : IAdapter
             }
             JSONValue jargs = required!JSONValue(j, "arguments");
             int tid = required!int(jargs, "threadId");
-            debugger.continue_(tid);
+            debugger.continueThread(tid);
             return CONTINUE;
         };
         // Disconnect from the debugger"

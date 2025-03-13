@@ -8,6 +8,7 @@ module transports.stdio;
 import std.stdio;
 import transport : ITransport;
 
+// NOTE: stdio streams in std.stdio are already synchronized
 class StdioTransport : ITransport
 {
     string name()

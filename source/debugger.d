@@ -132,26 +132,23 @@ interface IDebugger
     /// Params: pid = Process ID.
     void attach(int pid);
     
+    /// Debugger is attached to a process.
+    bool attached();
+    
     /// Terminate process.
     void terminate();
     /// Detach debugger from process.
     void detach();
     
     /// Continue thread.
-    void continue_(int tid);
+    void continueThread(int tid);
     
     /// List threads of process.
     int[] threads();
     
-    /// 
+    /// Get the first frame from a thread ID.
     DebuggerFrameInfo frame(int tid);
     
-    // Event stuff
-    
-    /// 
-    void hook(void delegate(ref DebuggerEvent));
-    /// Run debugger and perform action on events.
-    void run();
-    /// 
-    bool listening();
+    /// Wait for a debug event.
+    DebuggerEvent wait();
 }

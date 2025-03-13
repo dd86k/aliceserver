@@ -7,6 +7,7 @@ module main;
 
 import std.stdio;
 import std.getopt;
+import std.conv : text;
 import core.stdc.stdlib : exit;
 import config, server, ddlogger;
 import adbg.platform : ADBG_VERSION;
@@ -23,14 +24,6 @@ template VER(uint ver)
         cast(char)((ver % 10) + '0');
 }
 
-void cliListAdapters()
-{
-    writeln("Adapters:");
-    writeln("dap ....... (default) Debug Adapter Protocol");
-    writeln("mi ........ GDB/MI (GDB Machine Interface) version 1");
-    exit(0);
-}
-
 void main(string[] args)
 {
     ServerSettings osettings;
@@ -41,6 +34,12 @@ void main(string[] args)
         // TODO: --list-capabilities: List DAP capabilities and GDB/MI features
         // TODO: --tcp-port=NUMBER
         gres = getopt(args,
+        "list-adapters",  `List available adapters`, {
+            writeln("Adapters:");
+            writeln("dap ....... (default) Debug Adapter Protocol");
+            writeln("mi ........ GDB/MI (GDB Machine Interface) version 1");
+            exit(0);
+        },
         "a|adapter",`Set adapter to use`, (string _, string value) {
             switch (value) {
             case "dap":
@@ -59,14 +58,10 @@ void main(string[] args)
                 osettings.adapter.type = AdapterType.mi4;
                 break;
             default:
-                write("Invalid adapter. Available adapters listed below.\n\n");
-                cliListAdapters();
+                throw new Exception(text("Invalid adapter: '", value, "'.",
+                    " A full list can be read using --list-adapters"));
             }
         },
-        /*"d|debugger",``, (string _, string value) {
-            
-        },*/
-        "list-adapters",  `List available adapters`, &cliListAdapters,
         "log",      `Logger: Enable logging to stderr`, {
             logAddAppender(new ConsoleAppender());
         },
@@ -93,7 +88,7 @@ void main(string[] args)
     }
     catch (Exception ex)
     {
-        stderr.writeln("cli error: ", ex.msg);
+        stderr.writeln("Error: ", ex.msg);
         exit(1);
     }
     

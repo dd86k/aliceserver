@@ -26,8 +26,9 @@ class AlicedbgException : Exception
 
 class AliceDebugger : IDebugger
 {
-    void launch(string exec, string[] args, string cwd)
+    void launch(string exec, string[] args, string dir)
     {
+        logTrace("exec=%s args=%s dir=%d", exec, args, dir);
         process = adbg_debugger_spawn(exec.toStringz(), 0);
         if (process == null)
             throw new AlicedbgException();
@@ -36,23 +37,30 @@ class AliceDebugger : IDebugger
     
     void attach(int pid)
     {
+        logTrace("pid=%d", pid);
         process = adbg_debugger_attach(pid, 0);
         if (process == null)
             throw new AlicedbgException();
         _configure();
     }
     
+    bool attached()
+    {
+        return process != null;
+    }
+    
     private
     void _configure()
     {
-        adbg_debugger_on(process, AdbgEvent.exception, &adbgEventException);
-        adbg_debugger_on(process, AdbgEvent.processExit, &adbgEventExited);
-        adbg_debugger_on(process, AdbgEvent.processContinue, &adbgEventContinued);
+        adbg_debugger_on_exception(process, &adbgEventException);
+        adbg_debugger_on_process_exit(process, &adbgEventExited);
+        adbg_debugger_on_process_continue(process, &adbgEventContinued);
         adbg_debugger_udata(process, &event);
     }
     
-    void continue_(int tid)
+    void continueThread(int tid)
     {
+        logTrace("tid=%d", tid);
         enforceActiveProcess();
         if (adbg_debugger_continue(process, tid))
             throw new AlicedbgException();
@@ -75,7 +83,6 @@ class AliceDebugger : IDebugger
     
     void terminate()
     {
-        enforceActiveProcess();
         if (adbg_debugger_terminate(process))
             throw new AlicedbgException();
         process = null;
@@ -96,35 +103,6 @@ class AliceDebugger : IDebugger
         if (adbg_debugger_wait(process))
             throw new AlicedbgException();
         return event;
-    }
-    
-    void hook(void delegate(ref DebuggerEvent) send)
-    {
-        eventThread = new Thread({
-        Levent:
-            DebuggerEvent event = wait();
-            send(event);
-            
-            switch (event.type) with (DebuggerEventType) {
-            case exited: // Process exited, so quit event thread
-                return;
-            default:
-                goto Levent;
-            }
-        });
-    }
-    
-    void run()
-    {
-        enforceActiveProcess();
-        if (eventThread is null)
-            throw new Exception("Event dispatcher unhooked");
-        eventThread.start();
-    }
-    
-    bool listening()
-    {
-        return eventThread && eventThread.isRunning();
     }
     
     DebuggerFrameInfo frame(int tid)
@@ -160,12 +138,7 @@ private:
     /// Last adapter event.
     DebuggerEvent event;
     
-    /// 
-    Thread eventThread;
-    
-    // Actively check if we have an active process.
-    // Otherwise, Alicedbg would complain about an invalid handle, which
-    // could be confusing.
+    /// Throw if debugger is not attached to a process.
     void enforceActiveProcess()
     {
         if (process == null)
@@ -246,12 +219,11 @@ void adbgEventException(adbg_process_t *proc, void *udata, adbg_exception_t *exc
 
 // Handle continuations
 extern (C)
-void adbgEventContinued(adbg_process_t *proc, void *udata)
+void adbgEventContinued(adbg_process_t *proc, void *udata, long id)
 {
     DebuggerEvent *event = cast(DebuggerEvent*)udata;
     event.type = DebuggerEventType.continued;
-    // TODO: Assign Thread ID once Alicedbg gets better TID association
-    event.continued.threadId = adbg_process_id(proc);
+    event.continued.threadId = cast(int)id;
 }
 
 // Handle exits

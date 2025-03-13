@@ -3,8 +3,9 @@
 Aliceserver is a debugger server implementing the DAP and MI protocols, using
 [Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
 
-**This is major work in progress!**
-Don't expect it to replace GDB or LLDB any time soon.
+    ⚠️ This work in progress!
+
+    Everything is experimental, don't expect it to replace GDB or LLDB any time soon.
 
 Why?
 - lldb-mi is generally no longer available as a prebuilt binary after LLDB 9.0.1.
@@ -12,18 +13,13 @@ Why?
 - gdb-mi is fine, but GDC is generally unavailable for Windows.
 - gdb-dap is written in Python and thus requires it.
 - Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
-- All transport options in one package.
+- Reduce duplicated efforts in multiple package runtimes, with all transport and protocol options available.
 - Aliceserver provides future directions for features in Alicedbg.
 
 Uses:
 - Integrating your favorite text or code editor that implements a debugger UI.
 - Automated debugging integration testing.
 - Reusable high-level integration of Alicedbg.
-
-Planned features:
-- Multi-session support using TCP sockets.
-- Multi-session support using UNIX sockets and Windows NamedPipes.
-- Multi-session settings (unique session only, new session per connection).
 
 # Implementation Details
 

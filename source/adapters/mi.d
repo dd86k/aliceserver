@@ -18,7 +18,8 @@ import std.conv : to;
 import std.format : format;
 import std.string : indexOf;
 import std.outbuffer : OutBuffer;
-import std.string : stripRight;
+import std.string : strip, stripRight;
+import core.sync.mutex;
 import util.shell : shellArgs;
 import ddlogger;
 import config;
@@ -55,7 +56,11 @@ import debugger;
 //                   as well as the =breakpoint-created and =breakpoint-modified events.
 //                   The previous output was syntactically invalid. The new output is a list.
 //
-//       mi-async 1 (target-async in <= gdb 7.7)
+//       set mi-async 1 (target-async in <= gdb 7.7)
+//         set mi-async 1
+//         &"set mi-async 1\n"
+//         =cmd-param-changed,param="mi-async",value="on"
+//         ^done
 //
 //       Distro      GDBVer  MIVer
 //       Debian  6      7.0      2
@@ -126,15 +131,15 @@ final class MIAdapter : IAdapter
         QUIT,
     }
     
-    this(AdapterType miver)
+    this(int version_)
     {
-        switch (miver) with (AdapterType) {
-        case mi:  goto case mi4;
-        case mi2: miversion = 2; break;
-        case mi3: miversion = 3; break;
-        case mi4: miversion = 4; break;
+        switch (version_) {
+        case 1: goto case 4;
+        case 2: miversion = 2; break;
+        case 3: miversion = 3; break;
+        case 4: miversion = 4; break;
         default:
-            throw new Exception("Unsupported MI version");
+            throw new Exception(text("Unsupported MI version: ", version_));
         }
         
         // TODO: Implement these commands
@@ -146,7 +151,7 @@ final class MIAdapter : IAdapter
         //       - -exec-interrupt [--all|--thread-group N]: pause
         //       - -exec-jump LOCSPEC: continue example.c:10
         //       - -exec-show-arguments
-        //       - mi-async
+        //       - set mi-async 0/1
         //       - gdb-set: For example, "gdb-set target-async on"
         //       - break-insert: insert breakpoint
         //       - break-condition: change condition to breakpoint
@@ -160,17 +165,49 @@ final class MIAdapter : IAdapter
         //   --thread-group: Start only thread group (of type process) for target process
         //   --start: Stop at target's main function.
         commands["exec-run"] =
-        commands["exec"] =
+        commands["run"] =
         (string[] args) {
-            debugger.run();
-            success(`^running`);
+            // TODO: Determine if current thread is stopped
+            //if (current_tid) debugger.continueThread(current_tid);
+            // NOTE: Since we don't yet support mi-async (cough, Windows), everything is
+            //       ran synchronously.
+            // A typical session should look like this:
+            // ~"Starting program: ... \n"
+            // =thread-group-started,id="i1",pid="21552"
+            // ^running
+            // *running,thread-id="all"
+            // (gdb)
+            // ~"\nProgram received signal SIGSEGV, Segmentation fault.\n"
+            // ~"0x0000000000000000 in ?? ()\n"
+            // *stopped,reason="...",...
+            // (gdb)
+        Levent:
+            try
+            {
+                DebuggerEvent event = debugger.wait();
+                logTrace("event=%s", event);
+                sendEvent(event);
+            
+                switch (event.type) with (DebuggerEventType) {
+                case exited: // Process exited, no more events
+                    break;
+                default:
+                    goto Levent;
+                }
+            }
+            catch (Exception ex)
+            {
+                replyError(ex.msg);
+                return CONTINUE;
+            }
+            replyRunning();
             return CONTINUE;
         };
         // Resume process execution from a stopped state.
         commands["exec-continue"] =
         commands["continue"] =
         (string[] args) {
-            debugger.continue_(current_tid);
+            debugger.continueThread(current_tid);
             return CONTINUE;
         };
         // Terminate process.
@@ -186,22 +223,22 @@ final class MIAdapter : IAdapter
         (string[] args) {
             if (args.length < 1)
             {
-                error("Missing process-id argument.");
+                replyError("Missing process-id argument.");
                 return CONTINUE;
             }
             
             string pidstr = args[0];
+            logTrace("pid=%s", pidstr);
             int pid = void;
             try pid = to!int(pidstr);
             catch (Exception ex)
             {
-                error(text("Illegal process id: '", pidstr, "'."));
+                replyError(text("Illegal process id: '", pidstr, "'."));
                 return CONTINUE;
             }
             
             debugger.attach(pid);
-            // TODO: run events
-            success(`^running`);
+            reply(`*stopped`);
             return CONTINUE;
         };
         // -gdb-detach [ pid | gid ]
@@ -226,7 +263,7 @@ final class MIAdapter : IAdapter
         (string[] args) {
             if (args.length < 1)
             {
-                error("Need target type");
+                replyError("Need target type");
                 return CONTINUE;
             }
             
@@ -235,15 +272,15 @@ final class MIAdapter : IAdapter
             case "exec":
                 if (args.length < 2)
                 {
-                    error("Need target executable path");
+                    replyError("Need target executable path");
                     return CONTINUE;
                 }
                 
                 exec_path = args[1].dup;
-                success();
+                replyDone();
                 break;
             default:
-                error(text("Invalid target type: ", targetType));
+                replyError(text("Invalid target type: ", targetType));
             }
             return CONTINUE;
         };
@@ -253,12 +290,12 @@ final class MIAdapter : IAdapter
         (string[] args) {
             if (args.length < 1)
             {
-                error("Need target executable path");
+                replyError("Need target executable path");
                 return CONTINUE;
             }
             
             exec_path = args[0].dup;
-            success();
+            replyDone();
             return CONTINUE;
         };
         // -exec-arguments ARGS
@@ -267,30 +304,22 @@ final class MIAdapter : IAdapter
         (string[] args) {
             // If arguments given, set, otherwise, clear.
             exec_args = args.length > 0 ? args[0..$].dup : null;
-            success();
+            replyDone();
             return CONTINUE;
         };
-        // -environment-cd PATH
+        // TODO: -environment-cd PATH
         // Set debugger directory.
-        commands["exec-arguments"] =
+        commands["environment-cd"] =
         (string[] args) {
+            /*
             if (args.length < 1)
             {
-                error("Missing directory path.");
+                replyError("Missing directory path.");
                 return CONTINUE;
-            }
-            
-            // NOTE: Ultimately, the server should be the one controlling these requests
-            /* TODO: -environment-cd
-            try chdir(args[0]);
-            catch (Exception ex)
-            {
-                reply(AdapterError(ex.msg));
-                return SKIP;
             }
             */
             
-            success();
+            replyDone();
             return CONTINUE;
         };
         // -thread-list-ids
@@ -352,7 +381,7 @@ final class MIAdapter : IAdapter
                 mithread["id"] = tid;
                 mithread["target-id"] = tid;
                 mithread["frame"] = miFrame(debugger, tid);
-                // TODO: Thread state
+                // TODO: Thread state function
                 //       "running" or "stopped"
                 mithread["state"] = "stopped";
                 
@@ -382,7 +411,7 @@ final class MIAdapter : IAdapter
             MIValue mi;
             mi["threads"] = milist;
             if (milist.length) mi["current-thread-id"] = current_tid;
-            success(mi);
+            replyDone(mi);
             return CONTINUE;
         };
         // show [INFO]
@@ -393,7 +422,7 @@ final class MIAdapter : IAdapter
         (string[] args) {
             if (args.length < 1)
             {
-                success();
+                replyDone();
                 return CONTINUE;
             }
             
@@ -402,12 +431,12 @@ final class MIAdapter : IAdapter
             case "version":
                 static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
                 transport.send(cast(ubyte[])APPVERSION);
-                success();
+                replyDone();
                 return CONTINUE;
             default:
             }
             
-            error(text(`Unknown show command: '`, showCommand, `'`));
+            replyError(text(`Unknown show command: '`, showCommand, `'`));
             return CONTINUE;
         };
         // -info-gdb-mi-command COMMAND
@@ -422,14 +451,14 @@ final class MIAdapter : IAdapter
         (string[] args) {
             if (args.length < 1)
             {
-                error("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
+                replyError("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
                 return CONTINUE;
             }
             MIValue command;
             command["exists"] = cast(bool)((args[0] in commands) != null);
             MIValue m;
             m["command"] = command;
-            success(m);
+            replyDone(m);
             return CONTINUE;
         };
         // -list-features
@@ -477,24 +506,29 @@ final class MIAdapter : IAdapter
         //   array, structure, or union. 
         commands["list-features"] =
         (string[] args) {
-            static immutable string features = "^done,features=["~
-                "\"thread-info\","~
-                "\"info-gdb-mi-command\""~
-            "]\n";
-            transport.send(cast(ubyte[])features);
+            static immutable MIValue[] features = [
+                MIValue("thread-info"),
+                MIValue("info-gdb-mi-command"),
+            ];
+            MIValue mi;
+            mi["features"] = features;
+            replyDone(mi);
             return CONTINUE;
         };
-        // Ignore list
-        commands["gdb-set"] =
-        commands["inferior-tty-set"] =
-        (string[] args) { return CONTINUE; };
+        // "Not implemented yet, but required by clients" list
+        commands["gdb-set"] = // -gdb-set
+        commands["inferior-tty-set"] = // -inferior-tty-set
+        (string[] args) {
+            replyDone();
+            return CONTINUE;
+        };
         // Close debugger instance
+        // Even when attached, GDB terminates the process. How mean!
         commands["gdb-exit"] =
         commands["quit"] =
         commands["q"] =
         (string[] args) {
-            // NOTE: gdb-mi when attached does not terminate.
-            //       Therefore, the preference is not to terminate.
+            if (debugger.attached()) debugger.terminate();
             return QUIT;
         };
     }
@@ -513,8 +547,6 @@ final class MIAdapter : IAdapter
     {
         debugger = d;
         transport = t;
-        
-        debugger.hook(&event);
         
         // OutBufer .clear() sets offset to 0
         // Appender .clear() clears all data
@@ -536,7 +568,7 @@ final class MIAdapter : IAdapter
         // GDB sends the trace of the command as an event
         // NOTE: GDB behavior on traces
         //       Seem to be on "shell" commands (and not MI commands)
-        //       Does:    "q", "quit", "i-dont-exist"
+        //       Does:    "q", "quit", "i-dont-exist", "set" commands
         //       Doesn't: "-gdb-exit", "-info-gdb-mi-command", "-i-dont-exist"
         if (request.line && request.line[0] != '-')
         {
@@ -553,9 +585,9 @@ final class MIAdapter : IAdapter
         // - "22":  valid
         // - "22-": invalid (not found)
         // - "22 help": valid
-        if (request.name == "\n") // command parser removes "-"
+        if (strip(request.name) == "") // command parser removes "-"
         {
-            success();
+            replyDone();
             goto Lread;
         }
         
@@ -563,7 +595,7 @@ final class MIAdapter : IAdapter
         int delegate(string[])* fq = request.name in commands;
         if (fq == null)
         {
-            error(text(`Unknown request: "`, request.name, `"`));
+            replyError(text(`Unknown request: "`, request.name, `"`));
             goto Lread;
         }
         
@@ -571,11 +603,97 @@ final class MIAdapter : IAdapter
         try if ((*fq)(request.args) == QUIT)
             return;
         catch (Exception ex)
-            error(ex.msg);
+            replyError(ex.msg);
         goto Lread;
     }
     
-    void event(ref DebuggerEvent event)
+private:
+    ITransport transport;
+    IDebugger debugger;
+    // NOTE: Virtual functions inside a constructor may lead to unexpected results
+    //       in the derived classes - At leat marking the class as final prevents this
+    /// AA of implemented commands
+    int delegate(string[] args)[string] commands;
+    /// Current request
+    MIRequest request;
+    /// 
+    int current_tid;
+    /// Current MI version in use
+    int miversion;
+    
+    string exec_path;
+    string[] exec_args;
+    string exec_dir;
+    
+    OutBuffer outbuf;
+    OutBuffer errbuf;
+    
+    void rawsend(string msg)
+    {
+        transport.send(cast(ubyte[])msg);
+    }
+    
+    void sendPrompt()
+    {
+        rawsend("(gdb)\n");
+    }
+    
+    void reply(string msg)
+    {
+        outbuf.clear();
+        
+        // Attach token id to result record
+        if (request.id)
+            outbuf.write(text(request.id));
+        
+        // launch and attach requests have "^running" instead of "^done"
+        outbuf.write(msg);
+        outbuf.write('\n');
+        
+        transport.send(outbuf.toBytes());
+    }
+    
+    void replyRunning()
+    {
+        reply(`^running`);
+    }
+    
+    void replyDone()
+    {
+        reply(`^done`);
+    }
+    
+    void replyDone(ref MIValue m)
+    {
+        outbuf.clear();
+        
+        // Attach token id to result record
+        if (request.id)
+            outbuf.write(text(request.id));
+        
+        outbuf.write("^done,");
+        outbuf.write(m.toString());
+        outbuf.write('\n');
+        
+        transport.send(outbuf.toBytes());
+    }
+    
+    void replyError(string message)
+    {
+        logError(message);
+        
+        errbuf.clear();
+        
+        // 123^error,msg="Undefined command: \"test\"."\n
+        if (request.id) errbuf.write(text(request.id));
+        errbuf.write("^error,msg=\"");
+        errbuf.write( formatCString(message) );
+        errbuf.write("\"\n");
+        
+        transport.send(errbuf.toBytes());
+    }
+    
+    void sendEvent(DebuggerEvent event)
     {
         switch (event.type) with (DebuggerEventType) {
         // - ~"Starting program: example.exe \n"
@@ -631,86 +749,9 @@ final class MIAdapter : IAdapter
             logWarn("Unimplemented event type: %s", event.type);
         }
     }
-    
-private:
-    ITransport transport;
-    IDebugger debugger;
-    // NOTE: Virtual functions inside a constructor may lead to unexpected results
-    //       in the derived classes - At leat marking the class as final prevents this
-    /// AA of implemented commands
-    int delegate(string[] args)[string] commands;
-    /// Current request
-    MIRequest request;
-    /// 
-    int current_tid;
-    /// Current MI version in use
-    int miversion;
-    
-    string exec_path;
-    string[] exec_args;
-    string exec_dir;
-    
-    OutBuffer outbuf;
-    OutBuffer errbuf;
-    
-    void sendPrompt()
-    {
-        transport.send(cast(ubyte[])"(gdb)\n");
-    }
-    
-    void success(string prefix = null)
-    {
-        outbuf.clear();
-        
-        // Attach token id to result record
-        if (request.id)
-            outbuf.write(text(request.id));
-        
-        // launch and attach requests have "^running" instead of "^done"
-        outbuf.write(prefix ? prefix : "^done");
-        outbuf.write('\n');
-        
-        transport.send(outbuf.toBytes());
-    }
-    
-    void success(ref MIValue m)
-    {
-        outbuf.clear();
-        
-        // Attach token id to result record
-        if (request.id)
-            outbuf.write(text(request.id));
-        
-        outbuf.write("^done,");
-        outbuf.write(m.toString());
-        outbuf.write('\n');
-        
-        transport.send(outbuf.toBytes());
-    }
-    
-    void error(string message)
-    {
-        logError(message);
-        
-        errbuf.clear();
-        
-        // 123^error,msg="Undefined command: \"test\"."\n
-        if (request.id) errbuf.write(text(request.id));
-        errbuf.write("^error,msg=\"");
-        errbuf.write( formatCString(message) );
-        errbuf.write("\"\n");
-        
-        transport.send(errbuf.toBytes());
-    }
 }
 
 private:
-
-deprecated
-string toMessage(string prefix, MIValue miobj)
-{
-    return prefix~","~miobj.toString()~"\n";
-}
 
 string toMIArch(Architecture arch)
 {
@@ -746,7 +787,7 @@ MIValue miFrame(IDebugger debugger, int tid)
     }
     catch (Exception ex)
     {
-        // Frame info unavailable, but MI requires it
+        // Frame info unavailable, but MI requires it, so provide minimum by mimicking GDB
         miframe["addr"] = "0x0";
         miframe["func"] = "??";
         miframe["args"] = [];
@@ -776,6 +817,7 @@ string toMIStoppedReason(DebuggerStoppedReason reason)
     }
 }
 
+// TODO: Structure with signal name and description
 string[2] toMISignalNameDesc(DebuggerStoppedReason ex)
 {
     switch (ex) with (DebuggerStoppedReason) {
@@ -788,13 +830,15 @@ string[2] toMISignalNameDesc(DebuggerStoppedReason ex)
     }
 }
 
+// TODO: Integrate command name into arguments
+//       Command integration can then see (original?) command
+//       Rename MIRequest.name to MIRequest.command
+//         Document sanization or "simple" name (after removing dashes and request ID)
+// TODO: For logging purposes, keep original command (with request ID)
 struct MIRequest
 {
     uint id;        /// Request ID
     
-    // I don't know why I separated command name from the list of arguments,
-    // maybe I saw some sort of appeal as a name of a function with its
-    // parameters?
     string name;    /// Command name
     string[] args;  /// Command arguments
     
@@ -963,8 +1007,16 @@ enum MIType
     array,
 }
 
+// TODO: MIValue MUST be able to have repeated fields
+//       Switch from an AA to array or Array!T.
 struct MIValue
 {
+    this(string v)
+    {
+        type = MIType.string_;
+        store.string_ = v;
+    }
+    
     string str()
     {
         if (type != MIType.string_)
@@ -1072,7 +1124,7 @@ struct MIValue
             {
                 mi.store.array = []; // empty MIValue[]
             }
-            else
+            else // Assumes MIValue[]
             {
                 // new GC allocation to store and copy values
                 MIValue[] values = new MIValue[value.length];

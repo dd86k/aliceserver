@@ -8,11 +8,8 @@ module adapter;
 public import transport : ITransport;
 public import debugger  : IDebugger, DebuggerEvent;
 
-// TODO: string[] capabilities() (for printing purposes)
-
 interface IAdapter
 {
     string name();
     void loop(IDebugger, ITransport);
-    void event(ref DebuggerEvent);
 }

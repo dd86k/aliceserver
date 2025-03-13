@@ -72,18 +72,32 @@ struct ServerSettings
 // transport handler
 void startServer(ServerSettings settings)
 {
+    // Create adapter
     IAdapter adapter = void;
     final switch (settings.adapter.type) with (AdapterType) {
     case dap:
         adapter = new DAPAdapter();
         break;
-    case mi, mi2, mi3, mi4:
-        adapter = new MIAdapter(settings.adapter.type);
+    case mi:
+        adapter = new MIAdapter(1);
+        break;
+    case mi2:
+        adapter = new MIAdapter(2);
+        break;
+    case mi3:
+        adapter = new MIAdapter(3);
+        break;
+    case mi4:
+        adapter = new MIAdapter(4);
         break;
     }
     
+    // Create transport for adapter
     ITransport transport = new StdioTransport();
+    
+    // Create debugger instance for adapter
     IDebugger debugger = new AliceDebugger();
+    
     adapter.loop(debugger, transport);
-    if (debugger.listening()) debugger.terminate();
+    if (debugger.attached()) debugger.terminate();
 }
