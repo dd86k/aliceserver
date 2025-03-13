@@ -4,8 +4,8 @@ authors "dd86k <dd@dax.moe>"
 copyright "Copyright © 2024, dd86k <dd@dax.moe>"
 license "BSD-3-Clause-Clear"
 
-dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="c6ad0bbefbeeb4ca17d3deedf7324bb53feb0235"
-dependency "ddlogger" repository="git+https://github.com/dd86k/ddlogger.git" version="99a077a599c6d56e4fdeefb8b5d5002620cd228f"
+dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="b4e2ad4aedaf1cbaad82f193d39e46ce5068dd58"
+dependency "ddlogger" repository="git+https://github.com/dd86k/ddlogger.git" version="f432d330da588f6043f32ab50cc4a69192d38629"
 
 # NOTE: By default, docs are built with dependencies.
 #       These build types force building docs using project modules only.
