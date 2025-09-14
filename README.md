@@ -3,9 +3,11 @@
 Aliceserver is a debugger server implementing the DAP and MI protocols, using
 [Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
 
-    ⚠️ This work in progress!
+    ⚠️ This is WORK IN PROGRESS!
+    
+    Nothing works properly!
 
-    Everything is experimental, don't expect it to replace GDB or LLDB any time soon.
+    Experimental project, don't expect it to replace GDB or LLDB any time soon.
 
 Why?
 - lldb-mi is generally no longer available as a prebuilt binary after LLDB 9.0.1.
