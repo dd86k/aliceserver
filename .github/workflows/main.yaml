@@ -1,17 +1,28 @@
-name: Test
+name: Tests
 
 on: [ push, pull_request ]
-
-# TODO: Expand matrix to configs (with proper names)
 
 # Tests ensures the project builds and executes unittest.
 # The entry points are rather minimal.
 jobs:
-  Aliceserver:
+  ddhx:
     strategy:
       matrix:
-        os: [ ubuntu-20.04, ubuntu-22.04, ubuntu-24.04, windows-2022, windows-2025 ]
-        dc: [ dmd-latest, ldc-latest ]
+        # https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job#standard-github-hosted-runners-for-public-repositories
+        include: # easier to maintain, more explicit
+          # DMD: Currently x86-only
+          # GDC: Works best on Linux, BSDs
+          # Windows
+          - { os: windows-2025, dc: dmd }
+          - { os: windows-2025, dc: ldc }
+          - { os: windows-11-arm, dc: ldc }
+          # macOS
+          - { os: macos-15, dc: ldc }
+          - { os: macos-15-intel, dc: ldc }
+          # Linux
+          - { os: ubuntu-24.04, dc: dmd }
+          - { os: ubuntu-24.04, dc: gdc }
+          - { os: ubuntu-24.04, dc: ldc }
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
@@ -19,5 +30,15 @@ jobs:
       uses: dlang-community/setup-dlang@v2
       with:
         compiler: ${{ matrix.dc }}
-    - name: Test
+    # Ensure basic functionality
+    - name: Unit tests
       run: dub test
+    # Compiles and run
+    - name: Compile & run
+      run: dub -- --ver
+    # Upload artifact
+    #- name: Upload build
+    #  uses: actions/upload-artifact@v4
+    #  with:
+    #    name: ddhx-${{ matrix.os }}-${{ matrix.dc }}
+    #    path: ddhx*
