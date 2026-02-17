@@ -1005,8 +1005,6 @@ enum MIType
     array,
 }
 
-// TODO: MIValue MUST be able to have repeated fields
-//       Switch from an AA to array or Array!T.
 struct MIValue
 {
     this(string v)
@@ -1063,16 +1061,20 @@ struct MIValue
         return store.array = v;
     }
     
-    // Get value by index
+    // Get value by key (returns the first match)
+    // So far, only for unittests
     ref typeof(this) opIndex(return scope string key)
     {
         if (type != MIType.object_)
             throw new Exception(text("Attempted to index non-object, it is ", type));
-        
-        if ((key in store.object_) is null)
-            throw new Exception(text("Value not found with key '", key, "'"));
-        
-        return store.object_[key];
+
+        foreach (ref kv; store.object_)
+        {
+            if (kv.key == key)
+                return kv.value;
+        }
+
+        throw new Exception(text("Value not found with key '", key, "'"));
     }
     
     // Set value by key index
@@ -1140,14 +1142,15 @@ struct MIValue
         else static assert(false, "Not implemented for type "~T.stringof);
         
         type = MIType.object_;
-        store.object_[key] = mi;
+        store.object_ ~= KV(key, mi);
     }
     
     string toString() const
     {
         // NOTE: Formatting MI is similar to JSON, except:
         //       - Field names are not surrounded by quotes
-        //       - All values are string-formatted
+        //       - Fields can repeat
+        //       - All values are string-formatted (what did I mean by this?)
         //       - Root level has no base type
         switch (type) with (MIType) {
         case string_:
@@ -1173,15 +1176,15 @@ struct MIValue
             return str.data();
         case object_:
             Appender!string str = appender!string;
-            
+
             size_t count;
-            foreach (key, value; store.object_)
+            foreach (ref kv; store.object_)
             {
                 if (count++)
                     str.put(`,`);
-                
+
                 char schar = void, echar = void; // start and ending chars
-                switch (value.type) with (MIType) {
+                switch (kv.value.type) with (MIType) {
                 case object_:
                     schar = '{';
                     echar = '}';
@@ -1194,14 +1197,14 @@ struct MIValue
                     schar = echar = '"';
                     break;
                 }
-                
-                str.put(key);
+
+                str.put(kv.key);
                 str.put('=');
                 str.put(schar);
-                str.put(value.toString());
+                str.put(kv.value.toString());
                 str.put(echar);
             }
-            
+
             return str.data();
         default:
             throw new Exception(text("toString type unimplemented for: ", type));
@@ -1214,6 +1217,12 @@ struct MIValue
     }
     
 private:
+    struct KV
+    {
+        string key;
+        MIValue value;
+    }
+
     union Store
     {
         string string_;
@@ -1221,7 +1230,7 @@ private:
         ulong uinteger;
         double floating;
         bool boolean;
-        MIValue[string] object_;
+        KV[] object_;
         MIValue[] array;
     }
     Store store;
@@ -1254,17 +1263,21 @@ unittest
         assert(miarr["key"].array == []);
         assert(miarr.toString() == `key=[]`);
     }
-    // -thread-list-ids has this weird list:
-    // thread-ids={thread-id="1",thread-id="2"}
-    // Can't do that right now
-    /*{
+    // Sub-object test
+    {
         MIValue misub;
         misub["subkey"] = 2;
         MIValue miobj;
         miobj["key"] = misub;
-        //assert(miobj["key"] == misub);
         assert(miobj.toString() == `key={subkey="2"}`);
-    }*/
+    }
+    // Repeated keys (e.g. thread-ids={thread-id="1",thread-id="2"})
+    {
+        MIValue mi;
+        mi["thread-id"] = "1";
+        mi["thread-id"] = "2";
+        assert(mi.toString() == `thread-id="1",thread-id="2"`);
+    }
     
     /*
     ^done,threads=[
@@ -1279,20 +1292,13 @@ unittest
     current-thread-id="1"
     */
     
-    import std.algorithm.searching : canFind, count, startsWith, endsWith; // Lazy & AA will sort keys
-    
     MIValue t2;
     t2["id"] = 2;
     t2["thread-id"] = "Thread 0xb7e14b90 (LWP 21257)";
     t2["state"] = "running";
-    
-    // id="2",target-id="Thread 0xb7e14b90 (LWP 21257)",state="running"
-    string t2string = t2.toString();
-    assert(t2string.canFind(`id="2"`));
-    assert(t2string.canFind(`thread-id="Thread 0xb7e14b90 (LWP 21257)"`));
-    assert(t2string.canFind(`state="running"`));
-    assert(t2string.count(`,`) == 2);
-    
+
+    assert(t2.toString() == `id="2",thread-id="Thread 0xb7e14b90 (LWP 21257)",state="running"`);
+
     MIValue t2frame;
     t2frame["level"] = 0;
     t2frame["addr"]  = "0xffffe410";
@@ -1302,24 +1308,10 @@ unittest
     // Test objects in objects
     MIValue t2t;
     t2t["frame"] = t2frame;
-    // frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",args=[]}
-    string t2tstring = t2t.toString();
-    assert(t2tstring.canFind(`level="0"`));
-    assert(t2tstring.canFind(`addr="0xffffe410"`));
-    assert(t2tstring.canFind(`func="__kernel_vsyscall"`));
-    assert(t2tstring.canFind(`args=[]`));
-    assert(t2tstring.count(`,`) == 3);
-    assert(t2tstring.startsWith(`frame={`));
-    assert(t2tstring.endsWith(`}`));
-    
+    assert(t2t.toString() == `frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",args=[]}`);
+
     // Test all
     t2["frame"] = t2frame;
-    string t2final = t2.toString();
-    assert(t2final.canFind(`id="2"`));
-    assert(t2final.canFind(`thread-id="Thread 0xb7e14b90 (LWP 21257)"`));
-    assert(t2final.canFind(`state="running"`));
-    assert(t2final.canFind(`level="0"`));
-    assert(t2final.canFind(`addr="0xffffe410"`));
-    assert(t2final.canFind(`func="__kernel_vsyscall"`));
-    assert(t2final.canFind(`args=[]`));
+    assert(t2.toString() == `id="2",thread-id="Thread 0xb7e14b90 (LWP 21257)",state="running",`~
+        `frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",args=[]}`);
 }
