@@ -194,7 +194,7 @@ OPTIONS`, ores.options);
         jarguments["adapterID"] = "dd";
         jinitialize["arguments"] = jarguments;
         
-        JSONValue jres = send(jinitialize); current_seq++;
+        JSONValue jres = send(jinitialize);
         if (jres["request_seq"].integer != 1)
         {
             log(Op.warn, "Initial request id isn't 1, continuing anyway...");
@@ -206,18 +206,23 @@ OPTIONS`, ores.options);
         
         if (const(JSONValue)* jbody = "body" in jres)
         {
-            static immutable string supports = "supports";
-            static immutable string support  = "support";
-            string[] output;
-            foreach (ref key; jbody.object().keys)
+            if (jbody.type == JSONType.object)
             {
-                // NOTE: supportTerminateDebuggee lacks the 's'
-                if (startsWith(key, supports))
-                    output ~= key[supports.length..$];
-                else if (startsWith(key, support))
-                    output ~= key[support.length..$];
+                static immutable string supports = "supports";
+                static immutable string support  = "support";
+                string[] output;
+                foreach (ref key; jbody.object().keys)
+                {
+                    // NOTE: supportTerminateDebuggee lacks the 's'
+                    if (startsWith(key, supports))
+                        output ~= key[supports.length..$];
+                    else if (startsWith(key, support))
+                        output ~= key[support.length..$];
+                }
+                log(Op.info, "Server capabilities: %s", output.join(", "));
             }
-            log(Op.info, "Server capabilities: %s", output.join(", "));
+            else
+                log(Op.info, "Server did not emit any capabilities");
         }
         else
             log(Op.info, "Server did not emit any capabilities");
@@ -272,9 +277,9 @@ Lprompt:
             break;
         }
         JSONValue jlaunch = newMsg("launch");
-        jlaunch["arguments"] = [
-            "path": to!uint(args[1])
-        ];
+        JSONValue jargs;
+        jargs["path"] = args[1];
+        jlaunch["arguments"] = jargs;
         
         JSONValue jresponse = send(jlaunch);
         if (jresponse["request_seq"] != jlaunch["seq"])

@@ -255,8 +255,6 @@ class DAPAdapter : IAdapter
 
             initialized = true;
 
-            JSONValue reply;
-
             JSONValue jcapabilities;
             foreach (ref Capability capability; server.capabilities)
             {
@@ -265,9 +263,9 @@ class DAPAdapter : IAdapter
             }
 
             if (jcapabilities.isNull() == false)
-                reply["body"] = jcapabilities;
-
-            success(reply);
+                success(jcapabilities);
+            else
+                success();
             return ADAPTER_CONTINUE;
         };
         // Client is done configuring itself
@@ -424,7 +422,7 @@ class DAPAdapter : IAdapter
         int delegate(ref JSONValue) *func = request_command in commands;
         if (func == null)
         {
-            error(text("Command not found: '", request_command, ","));
+            error(text("Command not found: '", request_command, "'"));
             return ADAPTER_CONTINUE;
         }
 
