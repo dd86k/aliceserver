@@ -254,6 +254,7 @@ class DAPAdapter : IAdapter
         try
         {
             string[string] headers = readmsg();
+            logTrace("headers: %s", headers);
 
             const(string)* ContentLength = "Content-Length" in headers;
             if (ContentLength == null)
@@ -442,7 +443,6 @@ private:
     Lentry:
         // Read one HTTP field
         string line = strip( cast(string)transport.readline() );
-        logTrace("line: %s", line);
         if (line.length == 0)
             return headers;
 

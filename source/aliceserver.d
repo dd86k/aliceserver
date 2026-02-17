@@ -81,6 +81,7 @@ struct ServerSettings
 void startServer(ServerSettings settings)
 {
     // Create adapter
+    logDebugging("adapter=%s", settings.adapter.type);
     IAdapter adapter = void;
     final switch (settings.adapter.type) with (AdapterType) {
     case dap:
@@ -99,9 +100,9 @@ void startServer(ServerSettings settings)
         adapter = new MIAdapter(4);
         break;
     }
-    logDebugging("adapter=%s", adapter);
     
     // Create transport for adapter
+    // Right now, only single-session is supported, via stdio
     ITransport transport = new StdioTransport();
     
     // Create debugger instance for adapter

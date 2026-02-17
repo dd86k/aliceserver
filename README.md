@@ -1,6 +1,6 @@
 # About Aliceserver
 
-Aliceserver is a debugger server implementing the DAP and MI protocols, using
+Aliceserver is a debugger server implementing the DAP and GDB/MI protocols, using
 [Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
 
     ⚠️ This is WORK IN PROGRESS!
@@ -23,27 +23,30 @@ Uses:
 - Automated debugging integration testing.
 - Reusable high-level integration of Alicedbg.
 
+Cool ideas:
+- Using Aliceserver to bridge DAP to other remote endpoints, like GDB Remote Serial Protocol.
+
 # Implementation Details
 
 ```text
-+-------------------------------------------+
-| Aliceserver                               |
-| +---------------------------------------+ |
-| |                Server                 | |
-| +---------------------------------------+ |
-|      ^               ^            ^       |
-|      |               |            |       |
-|      |               v            v       |
-|      |          +----------+ +----------+ |
-|      v          | Adapter  | | Adapter  | |
-| +-----------+   +----------+ +----------+ |
-| | Transport |   | Debugger | | Debugger | |
-+-+-----------+---+----------+-+----------+-+
-       ^               ^            ^
-       v               v            v
-   +~~~~~~~~~+    +~~~~~~~~~~+ +~~~~~~~~~~+
-   | Client  |    | Process  | | Process  |
-   +~~~~~~~~~+    +~~~~~~~~~~+ +~~~~~~~~~~+
+┌───────────────────────────────────────────┐
+│ Aliceserver                               │
+│ ┌───────────────────────────────────────┐ │
+│ │                Server                 │ │
+│ └─────▲──────────────▲────────────▲─────┘ │
+│       │              │            │       │
+│       │         ┌────▼─────┐ ┌────▼─────┐ │
+│       │         │ Adapter  │ │ Adapter  │ │
+│ ┌─────▼─────┐   ├──────────┤ ├──────────┤ │
+│ │ Transport │   │ Debugger │ │ Debugger │ │
+└─┴─────▲─────┴───┴────▲─────┴─┴────▲─────┴─┘
+        │              │            │        
+        │              │            │        
+  ┌─────▼─────┐   ┌────▼─────┐ ┌────▼─────┐  
+  │           │   │          │ │          │  
+  │  Client   │   │ Process  │ │ Process  │  
+  │           │   │          │ │          │  
+  └───────────┘   └──────────┘ └──────────┘  
 ```
 
 Aliceserver is implemented using an Object-Oriented Programming model.
@@ -97,14 +100,11 @@ Right now, only `AlicedbgDebugger` is available as a debugger.
 ## DAP
 
 [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
-is a HTTP-like JSON protocol that was introduced in
+is a protocol using JSON-RPC that was introduced in
 [vscode-debugadapter-node](https://github.com/microsoft/vscode-debugadapter-node)
 and was readapted as a
 [standalone protocol](https://github.com/microsoft/debug-adapter-protocol)
 for debugging various processes and runtimes in Visual Studio Code.
-
-The protocol leaves a lot of nuance regarding implementation
-details, which can be a little infuriating to work with.
 
 This chapter reuses terminology from DAP, such as _Integer_ meaning, strictly
 speaking, a 32-bit integer number (`int`), and _Number_ meaning a 64-bit
@@ -116,12 +116,10 @@ DAP has two connection models: Single-session and multi-session.
 - Single-session: Using standard I/O (stdio), a single adapter instance is started.
 - Multi-session: Using TCP/IP, every new connection initiates a new debug session.
 
-Messages are encoded as HTTP messages using the UTF-8 encoding.
+Messages are encoded as HTTP messages using the UTF-8 encoding and JSON payloads.
 
 Currently, there is only one header field, `Content-Length`, that determines the
 length of the message (payload). This field is read as an Integer.
-
-The body (payload) is assumed to be encoded as [JSON](https://json.org).
 
 A typical request may look like this:
 

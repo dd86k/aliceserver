@@ -29,6 +29,7 @@ void main(string[] args)
 {
     ServerSettings osettings;
     
+    //uint ologlevel;
     GetoptResult gres = void;
     try
     {
@@ -63,6 +64,9 @@ void main(string[] args)
                     " A full list can be read using --list-adapters"));
             }
         },
+        //
+        // Logging
+        //
         "log",      `Logger: Enable logging to stderr`, {
             logAddAppender(new ConsoleAppender());
         },
@@ -70,6 +74,11 @@ void main(string[] args)
             logAddAppender(new FileAppender(path));
         },
         "loglevel", `Logger: Set log level (default=info)`, &osettings.logLevel,
+        // bundling+cumulative is possible, but defaults to trace in debug builds atm
+        //config.bundling, "v+", `Verbose`, &ologlevel,
+        //
+        // Pages
+        //
         "ver",      `Show only version and quit`, {
             writeln(PROJECT_VERSION);
             exit(0);
