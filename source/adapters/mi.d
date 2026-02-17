@@ -11,7 +11,7 @@
 /// License: BSD-3-Clause-Clear
 module adapters.mi;
 
-import server : AdapterType;
+import aliceserver : AdapterType, PROJECT_VERSION;
 import std.array : replace;
 import std.ascii;
 import std.conv : to;
@@ -22,7 +22,6 @@ import std.string : strip, stripRight;
 import core.sync.mutex;
 import util.shell : shellArgs;
 import ddlogger;
-import config;
 import adapter;
 import debugger;
 

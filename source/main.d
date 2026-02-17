@@ -9,7 +9,8 @@ import std.stdio;
 import std.getopt;
 import std.conv : text;
 import core.stdc.stdlib : exit;
-import config, server, ddlogger;
+import aliceserver;
+import ddlogger;
 import adbg.platform : ADBG_VERSION;
 
 // TODO: Attach available adapter types

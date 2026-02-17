@@ -3,7 +3,7 @@
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module server;
+module aliceserver;
 
 import std.stdio;
 import std.socket;
@@ -20,6 +20,13 @@ import debugger;
 import debuggers.alicedbg : AliceDebugger;
 import transport;
 import transports.stdio : StdioTransport;
+
+/// Aliceserver version
+immutable string PROJECT_VERSION   = "0.0.0";
+/// Aliceserver license
+immutable string PROJECT_LICENSE   = "BSD-3-Clause-Clear";
+/// Aliceserver copyrights
+immutable string PROJECT_COPYRIGHT = "Copyright (c) 2024 github.com/dd86k <dd@dax.moe>";
 
 // NOTE: Structure
 //
@@ -92,6 +99,7 @@ void startServer(ServerSettings settings)
         adapter = new MIAdapter(4);
         break;
     }
+    logDebugging("adapter=%s", adapter);
     
     // Create transport for adapter
     ITransport transport = new StdioTransport();
