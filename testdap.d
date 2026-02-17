@@ -41,9 +41,11 @@ void log(A...)(char op, string fmt, A args)
 {
     // If operating is one of those, and we don't want verbose, do not print
     if (overbose == false)
-    switch (op) {
-    case Op.trace, Op.receiving, Op.sending: return;
-    default:
+    {
+        switch (op) {
+        case Op.trace, Op.receiving, Op.sending: return;
+        default:
+        }
     }
     
     stderr.write("TESTER[", op, "]: ");
@@ -66,8 +68,10 @@ JSONValue newMsg(string command)
 }
 
 /// Send message to server and read a reply
-JSONValue serverSend(JSONValue jobj)
+JSONValue send(JSONValue jobj)
 {
+    try
+    {
     string bodydata = jobj.toString();
     size_t bodylen  = bodydata.length;
     
@@ -82,26 +86,32 @@ JSONValue serverSend(JSONValue jobj)
     
 Lread:
     //TODO: Read until empty in case of multiple header fields
-    string header = strip( server.stdout.readln() );
+    string header = strip( server.stdout.readln() ); // content-length
+    cast(void)server.stdout.readln(); // empty
     
-    cast(void)server.stdout.readln();
-    
-    log(Op.trace, "Header: %s", header);
+    log(Op.trace, `Header="%s"`, header);
     string[] parts = header.split(":");
     size_t sz = to!size_t(strip(parts[1]));
     const(char)[] httpbody = server.stdout.rawRead(buffer[0..sz]);
     
     log(Op.receiving, cast(string)httpbody);
     
-    JSONValue j = parseJSON(httpbody);
+        JSONValue j = parseJSON(httpbody);
     
-    if (j["type"].str == "event")
-    {
-        onEvent(j);
-        goto Lread;
+        if (j["type"].str == "event")
+        {
+            onEvent(j);
+            goto Lread;
+        }
+
+        return j;
     }
-    
-    return j;
+    catch (Exception ex)
+    {
+        log(Op.error, ex.msg);
+    }
+    import core.stdc.stdlib : exit;
+    exit(2);
 }
 
 void onEvent(JSONValue j)
@@ -184,7 +194,7 @@ OPTIONS`, ores.options);
         jarguments["adapterID"] = "dd";
         jinitialize["arguments"] = jarguments;
         
-        JSONValue jres = serverSend(jinitialize); current_seq++;
+        JSONValue jres = send(jinitialize); current_seq++;
         if (jres["request_seq"].integer != 1)
         {
             log(Op.warn, "Initial request id isn't 1, continuing anyway...");
@@ -214,7 +224,7 @@ OPTIONS`, ores.options);
         
         // NOTE: Usually, breakpoints would be set here
         
-        /+jres = serverSend(newMsg("configurationDone"));
+        /+jres = send(newMsg("configurationDone"));
         
         if (jres["request_seq"].integer != 3)
         {
@@ -249,7 +259,7 @@ Lprompt:
             "pid": to!uint(args[1])
         ];
         
-        JSONValue jresponse = serverSend(jattach);
+        JSONValue jresponse = send(jattach);
         if (jresponse["request_seq"] != jattach["seq"])
         {
             log(Op.warn, "Request id invalid, continuing anyway...");
@@ -266,7 +276,7 @@ Lprompt:
             "path": to!uint(args[1])
         ];
         
-        JSONValue jresponse = serverSend(jlaunch);
+        JSONValue jresponse = send(jlaunch);
         if (jresponse["request_seq"] != jlaunch["seq"])
         {
             log(Op.warn, "Request id invalid, continuing anyway...");
@@ -276,7 +286,7 @@ Lprompt:
         break;
     case "q", "quit", "disconnect":
         JSONValue jdisconnect = newMsg("disconnect");
-        cast(void)serverSend(jdisconnect);
+        cast(void)send(jdisconnect);
         return 0;
     default:
         if (args.length)
