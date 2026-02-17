@@ -463,7 +463,9 @@ private:
 
     void reply(ref JSONValue j)
     {
-        transport.send(cast(ubyte[])j.toString());
+        string body_ = j.toString();
+        string header = "Content-Length: " ~ to!string(body_.length) ~ "\r\n\r\n";
+        transport.send(cast(ubyte[])(header ~ body_));
     }
 
     void success()
