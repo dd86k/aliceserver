@@ -24,6 +24,7 @@ import util.shell : shellArgs;
 import ddlogger;
 import adapter;
 import debugger;
+version(unittest) import testing;
 
 // NOTE: GDB/MI versions and commmands
 //
@@ -1313,4 +1314,82 @@ unittest
     t2["frame"] = t2frame;
     assert(t2.toString() == `id="2",thread-id="Thread 0xb7e14b90 (LWP 21257)",state="running",`~
         `frame={level="0",addr="0xffffe410",func="__kernel_vsyscall",args=[]}`);
+}
+
+version(unittest)
+{
+    /// Feed a command line to the MI adapter via mock transport and call handleRequest.
+    private int feedMIRequest(MIAdapter adapter, testing.MockTransport mt, testing.MockDebugger md, string commandLine)
+    {
+        mt.feedLine(commandLine);
+        return adapter.handleRequest(md, mt);
+    }
+}
+
+// Handler-level tests for MIAdapter
+unittest
+{
+    import std.algorithm : canFind;
+
+    // Test: exec-arguments sets arguments, replies ^done
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-exec-arguments arg1 arg2`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+    }
+
+    // Test: unknown command returns ^error
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-nonexistent-command`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^error"));
+    }
+
+    // Test: gdb-exit returns ADAPTER_QUIT
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-gdb-exit`);
+        assert(result == ADAPTER_QUIT);
+    }
+
+    // Test: empty command replies ^done
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+    }
+
+    // Test: file-exec-and-symbols replies ^done
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-file-exec-and-symbols /bin/test`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+    }
 }
