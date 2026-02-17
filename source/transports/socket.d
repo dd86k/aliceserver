@@ -8,6 +8,7 @@ module transports.socket;
 public import std.socket;
 import transport : ITransport;
 import core.sync.mutex;
+import core.time : Duration;
 
 // NOTE: Sockets are not synchronized and thus need the mutex
 class SocketTransport : ITransport
@@ -48,8 +49,16 @@ class SocketTransport : ITransport
     {
         mutex.lock_nothrow();
         scope(exit) mutex.unlock_nothrow();
-        
+
         sock.send(data); // throw allowed
+    }
+
+    bool hasData()
+    {
+        scope SocketSet readSet = new SocketSet();
+        readSet.add(sock);
+        // Select with zero timeout for non-blocking check
+        return Socket.select(readSet, null, null, Duration.zero) > 0;
     }
 
 private:

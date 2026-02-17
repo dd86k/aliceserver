@@ -125,12 +125,6 @@ unittest
 
 final class MIAdapter : IAdapter
 {
-    private enum
-    {
-        CONTINUE,
-        QUIT,
-    }
-    
     this(int version_)
     {
         switch (version_) {
@@ -182,6 +176,7 @@ final class MIAdapter : IAdapter
             // *stopped,reason="...",...
             // (gdb)
         Levent:
+            /*
             try
             {
                 DebuggerEvent event = debugger.wait();
@@ -198,23 +193,25 @@ final class MIAdapter : IAdapter
             catch (Exception ex)
             {
                 replyError(ex.msg);
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             replyRunning();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
+            */
+            throw new Exception("todo");
         };
         // Resume process execution from a stopped state.
         commands["exec-continue"] =
         commands["continue"] =
         (string[] args) {
             debugger.continueThread(current_tid);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Terminate process.
         commands["exec-abort"] =
         (string[] args) {
             debugger.terminate();
-            return QUIT;
+            return ADAPTER_QUIT;
         };
         // attach PID
         // Attach debugger to process by its ID.
@@ -224,7 +221,7 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyError("Missing process-id argument.");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             
             string pidstr = args[0];
@@ -234,12 +231,12 @@ final class MIAdapter : IAdapter
             catch (Exception ex)
             {
                 replyError(text("Illegal process id: '", pidstr, "'."));
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             
             debugger.attach(pid);
             reply(`*stopped`);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
@@ -248,14 +245,14 @@ final class MIAdapter : IAdapter
         commands["detach"] =
         (string[] args) {
             debugger.detach();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -target-disconnect
         // Disconnect from remote target.
         commands["target-disconnect"] =
         (string[] args) {
             debugger.detach();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // target TYPE [OPTIONS]
         // Set target parameters.
@@ -264,7 +261,7 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyError("Need target type");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             
             string targetType = args[0];
@@ -273,7 +270,7 @@ final class MIAdapter : IAdapter
                 if (args.length < 2)
                 {
                     replyError("Need target executable path");
-                    return CONTINUE;
+                    return ADAPTER_CONTINUE;
                 }
                 
                 exec_path = args[1].dup;
@@ -282,7 +279,7 @@ final class MIAdapter : IAdapter
             default:
                 replyError(text("Invalid target type: ", targetType));
             }
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // file-exec-and-symbols PATH
         // (gdb, lldb) Set target path and symbols as the same
@@ -291,12 +288,12 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyError("Need target executable path");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             
             exec_path = args[0].dup;
             replyDone();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -exec-arguments ARGS
         // Set target arguments.
@@ -305,7 +302,7 @@ final class MIAdapter : IAdapter
             // If arguments given, set, otherwise, clear.
             exec_args = args.length > 0 ? args[0..$].dup : null;
             replyDone();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // TODO: -environment-cd PATH
         // Set debugger directory.
@@ -315,12 +312,12 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyError("Missing directory path.");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             */
             
             replyDone();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -thread-list-ids
         // List thread IDs.
@@ -337,7 +334,7 @@ final class MIAdapter : IAdapter
                 mi["thread-id"] = tid;
             }
             
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };*/
         // -thread-info [TID]
         // Get a list of thread and information associated with each thread.
@@ -412,7 +409,7 @@ final class MIAdapter : IAdapter
             mi["threads"] = milist;
             if (milist.length) mi["current-thread-id"] = current_tid;
             replyDone(mi);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // show [INFO]
         // Show information about session.
@@ -423,7 +420,7 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyDone();
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             
             string showCommand = args[0];
@@ -432,12 +429,12 @@ final class MIAdapter : IAdapter
                 static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
                 transport.send(cast(ubyte[])APPVERSION);
                 replyDone();
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             default:
             }
             
             replyError(text(`Unknown show command: '`, showCommand, `'`));
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -info-gdb-mi-command COMMAND
         // Sends information about the MI command, if it exists.
@@ -452,14 +449,14 @@ final class MIAdapter : IAdapter
             if (args.length < 1)
             {
                 replyError("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             MIValue command;
             command["exists"] = cast(bool)((args[0] in commands) != null);
             MIValue m;
             m["command"] = command;
             replyDone(m);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // -list-features
         // List debugger features
@@ -513,14 +510,14 @@ final class MIAdapter : IAdapter
             MIValue mi;
             mi["features"] = features;
             replyDone(mi);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // "Not implemented yet, but required by clients" list
         commands["gdb-set"] = // -gdb-set
         commands["inferior-tty-set"] = // -inferior-tty-set
         (string[] args) {
             replyDone();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Close debugger instance
         // Even when attached, GDB terminates the process. How mean!
@@ -529,7 +526,7 @@ final class MIAdapter : IAdapter
         commands["q"] =
         (string[] args) {
             if (debugger.attached()) debugger.terminate();
-            return QUIT;
+            return ADAPTER_QUIT;
         };
     }
     
@@ -543,28 +540,28 @@ final class MIAdapter : IAdapter
         }
     }
     
-    void loop(IDebugger d, ITransport t)
+    int handleRequest(IDebugger d, ITransport t)
     {
         debugger = d;
         transport = t;
-        
-        // OutBufer .clear() sets offset to 0
-        // Appender .clear() clears all data
-        scope OutBuffer tracebuf = new OutBuffer();
-        tracebuf.reserve(512);
-        
-        outbuf = new OutBuffer();
-        outbuf.reserve(1024);
-        errbuf = new OutBuffer();
-        errbuf.reserve(1024);
-        
-    Lread:
+
+        // Initialize output buffers on first call
+        if (outbuf is null)
+        {
+            outbuf = new OutBuffer();
+            outbuf.reserve(1024);
+            errbuf = new OutBuffer();
+            errbuf.reserve(1024);
+            tracebuf = new OutBuffer();
+            tracebuf.reserve(512);
+        }
+
         sendPrompt(); // Ready!
         string fullrequest = cast(string)transport.readline();
-        
+
         // Parse request
         request = parseMIRequest(fullrequest);
-        
+
         // GDB sends the trace of the command as an event
         // NOTE: GDB behavior on traces
         //       Seem to be on "shell" commands (and not MI commands)
@@ -578,7 +575,7 @@ final class MIAdapter : IAdapter
             tracebuf.write("\"\n");
             transport.send(tracebuf.toBytes());
         }
-        
+
         // GDB behavior:
         // - "":    valid
         // - "-":   invalid (not found)
@@ -588,25 +585,82 @@ final class MIAdapter : IAdapter
         if (strip(request.name) == "") // command parser removes "-"
         {
             replyDone();
-            goto Lread;
+            return ADAPTER_CONTINUE;
         }
-        
+
         // Command exists, get request out of that
         int delegate(string[])* fq = request.name in commands;
         if (fq == null)
         {
             replyError(text(`Unknown request: "`, request.name, `"`));
-            goto Lread;
+            return ADAPTER_CONTINUE;
         }
-        
+
         // Execute
-        try if ((*fq)(request.args) == QUIT)
-            return;
+        try return (*fq)(request.args);
         catch (Exception ex)
+        {
             replyError(ex.msg);
-        goto Lread;
+            return ADAPTER_CONTINUE;
+        }
     }
-    
+
+    void sendEvent(DebuggerEvent event, ITransport t)
+    {
+        transport = t;
+
+        // Initialize output buffers if needed (sendEvent may be called before handleRequest)
+        if (outbuf is null)
+        {
+            outbuf = new OutBuffer();
+            outbuf.reserve(1024);
+        }
+
+        switch (event.type) with (DebuggerEventType) {
+        // - *running,thread-id="all"
+        case continued:
+            transport.send(cast(ubyte[])"*running\n");
+            break;
+        // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
+        //   frame={addr="0x08048564",func="main",
+        //   args=[{name="argc",value="1"},{name="argv",value="0xbfc4d4d4"}],
+        //   file="myprog.c",fullname="/home/nickrob/myprog.c",line="68",
+        //   arch="i386:x86_64"}
+        // - *stopped,reason="signal-received",signal-name="SIGSEGV",
+        //   signal-meaning="Segmentation fault",frame={addr="0x0000000000000000",
+        //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
+        // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
+        case stopped:
+            MIValue mi;
+            mi["reason"] = toMIStoppedReason(event.stopped.reason);
+            string[2] siginfo = toMISignalNameDesc(event.stopped.reason);
+            mi["signal-name"] = siginfo[0];
+            mi["signal-meaning"] = siginfo[1];
+            mi["frame"] = miFrame(debugger, event.stopped.threadId);
+            mi["thread-id"] = event.stopped.threadId;
+            mi["stopped-threads"] = "all";
+            transport.send(cast(ubyte[])mi.toMessage("*stopped"));
+            break;
+        // - *stopped,reason="exited-normally"
+        // - *stopped,reason="exited",exit-code="01"
+        case exited:
+            MIValue m;
+            if (event.exited.code)
+            {
+                m["reason"] = "exited";
+                // TODO: Check if exit-code is octal since it has a 0 prefix
+                m["exit-code"] = event.exited.code;
+            }
+            else
+                m["reason"] = "exited-normally";
+
+            transport.send(cast(ubyte[])m.toMessage("*stopped"));
+            break;
+        default:
+            logWarn("Unimplemented event type: %s", event.type);
+        }
+    }
+
 private:
     ITransport transport;
     IDebugger debugger;
@@ -627,6 +681,7 @@ private:
     
     OutBuffer outbuf;
     OutBuffer errbuf;
+    OutBuffer tracebuf;
     
     void rawsend(string msg)
     {
@@ -691,63 +746,6 @@ private:
         errbuf.write("\"\n");
         
         transport.send(errbuf.toBytes());
-    }
-    
-    void sendEvent(DebuggerEvent event)
-    {
-        switch (event.type) with (DebuggerEventType) {
-        // - ~"Starting program: example.exe \n"
-        // - =library-loaded,id="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
-        //   target-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
-        //   host-name="C:\\WINDOWS\\SYSTEM32\\ntdll.dll",
-        //   symbols-loaded="0",
-        //   thread-group="i1",
-        //   ranges=[{from="0x00007ff8f8731000",to="0x00007ff8f8946628"}]
-        /*case output:
-            send(format("~\"%s\"\n", formatCString( msg. )));
-            break;*/
-        // - *running,thread-id="all"
-        case continued:
-            transport.send(cast(ubyte[])"*running\n");
-            break;
-        // - *stopped,reason="breakpoint-hit",disp="keep",bkptno="1",thread-id="0",
-        //   frame={addr="0x08048564",func="main",
-        //   args=[{name="argc",value="1"},{name="argv",value="0xbfc4d4d4"}],
-        //   file="myprog.c",fullname="/home/nickrob/myprog.c",line="68",
-        //   arch="i386:x86_64"}
-        // - *stopped,reason="signal-received",signal-name="SIGSEGV",
-        //   signal-meaning="Segmentation fault",frame={addr="0x0000000000000000",
-        //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
-        // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
-        case stopped:
-            MIValue mi;
-            mi["reason"] = toMIStoppedReason(event.stopped.reason);
-            string[2] siginfo = toMISignalNameDesc(event.stopped.reason);
-            mi["signal-name"] = siginfo[0];
-            mi["signal-meaning"] = siginfo[1];
-            mi["frame"] = miFrame(debugger, event.stopped.threadId);
-            mi["thread-id"] = event.stopped.threadId;
-            mi["stopped-threads"] = "all";
-            transport.send(cast(ubyte[])mi.toMessage("*stopped"));
-            break;
-        // - *stopped,reason="exited-normally"
-        // - *stopped,reason="exited",exit-code="01"
-        case exited:
-            MIValue m;
-            if (event.exited.code)
-            {
-                m["reason"] = "exited";
-                // TODO: Check if exit-code is octal since it has a 0 prefix
-                m["exit-code"] = event.exited.code;
-            }
-            else
-                m["reason"] = "exited-normally";
-            
-            transport.send(cast(ubyte[])m.toMessage("*stopped"));
-            break;
-        default:
-            logWarn("Unimplemented event type: %s", event.type);
-        }
     }
 }
 

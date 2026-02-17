@@ -11,4 +11,6 @@ interface ITransport
     ubyte[] readline();
     ubyte[] read(size_t size);
     void send(ubyte[]);
+    /// Returns true if data is available for reading without blocking.
+    bool hasData();
 }

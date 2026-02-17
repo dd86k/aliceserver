@@ -6,6 +6,7 @@
 module debuggers.alicedbg;
 
 import core.thread;
+import core.sync.mutex;
 import std.string : toStringz, fromStringz;
 import ddlogger;
 import debugger;
@@ -15,59 +16,76 @@ import adbg.machines;
 import adbg.process.exception;
 import adbg.process.frame;
 import adbg.process.thread;
+import adbg.easy;
 
 class AlicedbgException : Exception
 {
-    this()
+    this(
+        string file_ = __FILE__, size_t line_ = __LINE__)
     {
-        super(cast(string)fromStringz(adbg_error_message()));
+        super(
+            cast(string)fromStringz(adbg_error_message()),
+            file_, line_
+        );
     }
+}
+
+private
+struct AliceDebuggerState
+{
+    DebuggerEvent event;
+    AliceDebugger debugger;
 }
 
 class AliceDebugger : IDebugger
 {
+    this()
+    {
+        eventMutex = new Mutex();
+        ez = adbg_easy_create();
+        if (ez == null)
+            throw new AlicedbgException();
+        adbg_easy_set_event_handler(ez, &adbgEventHandler);
+        state.debugger = this;
+        adbg_easy_set_user_data(ez, &state);
+    }
+
     void launch(string exec, string[] args, string dir)
     {
         logTrace("exec=%s args=%s dir=%d", exec, args, dir);
-        process = adbg_debugger_spawn(exec.toStringz(), 0);
-        if (process == null)
+        int rc = adbg_easy_spawn(ez, exec.toStringz());
+        if (rc < 0)
             throw new AlicedbgException();
-        _configure();
+        attached_ = true;
     }
-    
+
     void attach(int pid)
     {
         logTrace("pid=%d", pid);
-        process = adbg_debugger_attach(pid, 0);
-        if (process == null)
+        int rc = adbg_easy_attach(ez, pid);
+        if (rc < 0)
             throw new AlicedbgException();
-        _configure();
+        attached_ = true;
     }
-    
+
     bool attached()
     {
-        return process != null;
+        return attached_;
     }
-    
-    private
-    void _configure()
-    {
-        adbg_debugger_on_exception(process, &adbgEventException);
-        adbg_debugger_on_process_exit(process, &adbgEventExited);
-        adbg_debugger_on_process_continue(process, &adbgEventContinued);
-        adbg_debugger_udata(process, &event);
-    }
-    
+
     void continueThread(int tid)
     {
         logTrace("tid=%d", tid);
         enforceActiveProcess();
-        if (adbg_debugger_continue(process, tid))
+        int rc = adbg_easy_continue(ez, tid);
+        if (rc < 0)
             throw new AlicedbgException();
     }
-    
+
     int[] threads()
     {
+        throw new Exception("todo");
+        /*
         enforceActiveProcess();
         void *tlist = adbg_thread_list_new(process);
         if (tlist == null)
@@ -79,69 +97,89 @@ class AliceDebugger : IDebugger
             threads ~= cast(int)adbg_thread_id(thread);
         adbg_thread_list_close(tlist);
         return threads;
+        */
     }
-    
+
     void terminate()
     {
-        if (adbg_debugger_terminate(process))
+        enforceActiveProcess();
+        int rc = adbg_easy_terminate(ez);
+        if (rc < 0)
             throw new AlicedbgException();
-        process = null;
+        attached_ = false;
     }
-    
+
     void detach()
     {
         enforceActiveProcess();
-        if (adbg_debugger_detach(process))
+        int rc = adbg_easy_detach(ez);
+        if (rc < 0)
             throw new AlicedbgException();
-        process = null;
+        attached_ = false;
     }
-    
-    DebuggerEvent wait()
-    {
-        enforceActiveProcess();
-        DebuggerEvent event = void;
-        if (adbg_debugger_wait(process))
-            throw new AlicedbgException();
-        return event;
-    }
-    
+
     DebuggerFrameInfo frame(int tid)
     {
+        throw new Exception("todo");
+        /*
         enforceActiveProcess();
-        
+
         adbg_thread_t *thread = adbg_thread_new(tid);
         if (thread == null)
             throw new AlicedbgException();
         scope(exit) adbg_thread_close(thread);
-        
+
         void *framelist = adbg_frame_list(process, thread);
         if (framelist == null)
             throw new AlicedbgException();
         scope(exit) adbg_frame_list_close(framelist);
-        
+
         adbg_stackframe_t *frame0 = adbg_frame_list_at(framelist, 0);
         if (frame0 == null)
             throw new AlicedbgException();
-        
+
         DebuggerFrameInfo frame = void;
         frame.address = frame0.address;
         frame.funcname = null;
         frame.funcargs = null;
         frame.arch = adbgMachine( adbg_process_machine(process) );
         return frame;
+        */
     }
-    
+
+    /// Push an event onto the queue (called from C callback, thread-safe).
+    void pushEvent(DebuggerEvent event)
+    {
+        eventMutex.lock();
+        eventQueue ~= event;
+        eventMutex.unlock();
+    }
+
+    /// Take all queued events (non-blocking).
+    DebuggerEvent[] pollEvents()
+    {
+        eventMutex.lock();
+        DebuggerEvent[] events = eventQueue;
+        eventQueue = null;
+        eventMutex.unlock();
+        return events;
+    }
+
 private:
-    /// Current process.
-    adbg_process_t *process;
-    
-    /// Last adapter event.
-    DebuggerEvent event;
-    
+    ///
+    adbg_easy_t *ez;
+
+    AliceDebuggerState state;
+
+    bool attached_;
+
+    Mutex eventMutex;
+    DebuggerEvent[] eventQueue;
+
     /// Throw if debugger is not attached to a process.
     void enforceActiveProcess()
     {
-        if (process == null)
+        if (attached_ == false)
             throw new Exception("No process attached.");
     }
 }
@@ -206,31 +244,34 @@ Architecture adbgMachine(AdbgMachine mach)
     }
 }
 
-// Handle exceptions
 extern (C)
-void adbgEventException(adbg_process_t *proc, void *udata, adbg_exception_t *exception)
+void adbgEventHandler(adbg_easy_t *ez, adbg_process_t *aprocess, adbg_event_t *aevent, void *adata)
 {
-    DebuggerEvent *event = cast(DebuggerEvent*)udata;
-    
-    event.type = DebuggerEventType.stopped;
-    event.stopped.threadId = cast(int)adbg_exception_tid(exception);
-    event.stopped.reason = adbgStoppedReason(exception);
-}
+    AliceDebuggerState *state = cast(AliceDebuggerState*)adata;
 
-// Handle continuations
-extern (C)
-void adbgEventContinued(adbg_process_t *proc, void *udata, long id)
-{
-    DebuggerEvent *event = cast(DebuggerEvent*)udata;
-    event.type = DebuggerEventType.continued;
-    event.continued.threadId = cast(int)id;
-}
+    DebuggerEvent event;
 
-// Handle exits
-extern (C)
-void adbgEventExited(adbg_process_t *proc, void *udata, int code)
-{
-    DebuggerEvent *event = cast(DebuggerEvent*)udata;
-    event.type = DebuggerEventType.exited;
-    event.exited.code = code;
+    final switch (aevent.type) {
+    case AdbgEvent.exception:
+        event.type = DebuggerEventType.stopped;
+        event.stopped.reason = adbgStoppedReason(&aevent.exception);
+        // TODO: event.stopped.threadId from aprocess
+        break;
+    case AdbgEvent.processCreated:
+        event.type = DebuggerEventType.process;
+        break;
+    case AdbgEvent.processContinue:
+        event.type = DebuggerEventType.continued;
+        break;
+    case AdbgEvent.processExit:
+        event.type = DebuggerEventType.exited;
+        // TODO: event.exited.code from aevent
+        break;
+    case AdbgEvent.processPaused:
+        event.type = DebuggerEventType.stopped;
+        event.stopped.reason = DebuggerStoppedReason.pause;
+        break;
+    }
+
+    state.debugger.pushEvent(event);
 }

@@ -11,6 +11,7 @@ import std.concurrency;
 import std.conv;
 import std.string;
 import core.thread;
+import core.time : msecs;
 import ddlogger;
 import adapter;
 import adapters.dap : DAPAdapter;
@@ -98,6 +99,19 @@ void startServer(ServerSettings settings)
     // Create debugger instance for adapter
     IDebugger debugger = new AliceDebugger();
     
-    adapter.loop(debugger, transport);
+    // Server-owned poll loop
+    while (true)
+    {
+        if (transport.hasData())
+        {
+            if (adapter.handleRequest(debugger, transport) == ADAPTER_QUIT)
+                break;
+        }
+
+        foreach (event; debugger.pollEvents())
+            adapter.sendEvent(event, transport);
+
+        Thread.sleep(1.msecs);
+    }
     if (debugger.attached()) debugger.terminate();
 }

@@ -149,6 +149,6 @@ interface IDebugger
     /// Get the first frame from a thread ID.
     DebuggerFrameInfo frame(int tid);
     
-    /// Wait for a debug event.
-    DebuggerEvent wait();
+    /// Poll for queued debugger events (non-blocking).
+    DebuggerEvent[] pollEvents();
 }

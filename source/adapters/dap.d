@@ -63,7 +63,7 @@ struct Capability
 {
     string name;
     bool supported;
-    
+
     string prettyName()
     {
         return name
@@ -76,12 +76,6 @@ private enum PathFormat { path, uri }
 
 class DAPAdapter : IAdapter
 {
-    enum
-    {
-        CONTINUE,
-        QUIT,
-    }
-    
     this()
     {
         // Initialize DAP session, server services not required
@@ -90,22 +84,22 @@ class DAPAdapter : IAdapter
             if (initialized)
             {
                 error("Already initialized");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
-            
+
             JSONValue jarguments = j["arguments"];
-            
+
             // Required fields
             required(jarguments, "adapterID", client.adapterId);
             logInfo("Adapter ID: %s", client.adapterId);
-            
+
             // Optional fields
             optional(jarguments, "clientID", client.id);
             optional(jarguments, "clientName", client.name);
             with (client) if (id && name)
                 logInfo("Client: %s (%s)", name, id);
             optional(jarguments, "locale", client.locale);
-            
+
             string pathFormat;
             if (optional(jarguments, "pathFormat", pathFormat))
             {
@@ -121,7 +115,7 @@ class DAPAdapter : IAdapter
                         client.pathFormat));
                 }
             }
-            
+
             // Process client capabilities by attempting to query all
             // possible fields and populating them in our client features array
             string clientcap;
@@ -134,29 +128,29 @@ class DAPAdapter : IAdapter
             if (clientcap == string.init)
                 clientcap = " none";
             logInfo("Client capabilities:%s", clientcap);
-            
+
             initialized = true;
-            
+
             JSONValue reply;
-            
+
             JSONValue jcapabilities;
             foreach (ref Capability capability; server.capabilities)
             {
                 if (capability.supported)
                     jcapabilities[capability.name] = true;
             }
-            
+
             if (jcapabilities.isNull() == false)
                 reply["body"] = jcapabilities;
-            
+
             success(reply);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Client is done configuring itself
         commands["configurationDone"] =
         (ref JSONValue j) {
             success();
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Launch process with debugger
         commands["launch"] =
@@ -164,12 +158,12 @@ class DAPAdapter : IAdapter
             if (initialized == false)
             {
                 error("Uninitialized");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             JSONValue jargs = required!JSONValue(j, "arguments");
             string path = required!string(jargs, "path");
             debugger.launch(path, null, null);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Attach debugger to process
         commands["attach"] =
@@ -177,12 +171,12 @@ class DAPAdapter : IAdapter
             if (initialized == false)
             {
                 error("Uninitialized");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             JSONValue jargs = required!JSONValue(j, "arguments");
             int pid = required!int(jargs, "pid");
             debugger.attach(pid);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Continue debugging session
         commands["continue"] =
@@ -190,12 +184,12 @@ class DAPAdapter : IAdapter
             if (initialized == false)
             {
                 error("Uninitialized");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             JSONValue jargs = required!JSONValue(j, "arguments");
             int tid = required!int(jargs, "threadId");
             debugger.continueThread(tid);
-            return CONTINUE;
+            return ADAPTER_CONTINUE;
         };
         // Disconnect from the debugger"
         commands["disconnect"] =
@@ -203,7 +197,7 @@ class DAPAdapter : IAdapter
             if (initialized == false)
             {
                 error("Uninitialized");
-                return CONTINUE;
+                return ADAPTER_CONTINUE;
             }
             // "the debug adapter must terminate the debuggee if it was started
             // with the launch request. If an attach request was used to connect
@@ -225,56 +219,56 @@ class DAPAdapter : IAdapter
                 // TODO: bool restart (optional)
             }+/
             success();
-            return QUIT;
+            return ADAPTER_QUIT;
         };
     }
-    
+
     // Return short name of this adapter
     string name()
     {
         return "dap";
     }
-    
-    // Parse incoming data from client to a message
-    void loop(IDebugger d, ITransport t)
+
+    // Handle one incoming request from transport.
+    int handleRequest(IDebugger d, ITransport t)
     {
-        transport = t;
         debugger  = d;
-        
-        // Print server capabilities
-        string servercap;
-        foreach (ref Capability capability; server.capabilities)
-            if (capability.supported)
-                servercap ~= text(" ", capability.prettyName());
-        if (servercap == string.init)
-            servercap = " none";
-        logInfo("Server capabilities:%s", servercap);
-        
-        //
-        // Request
-        //
-        
-    Lrequest: // new request
+        transport = t;
+
+        // Print server capabilities on first request
+        if (!capsPrinted)
+        {
+            string servercap;
+            foreach (ref Capability capability; server.capabilities)
+                if (capability.supported)
+                    servercap ~= text(" ", capability.prettyName());
+            if (servercap == string.init)
+                servercap = " none";
+            logInfo("Server capabilities:%s", servercap);
+            capsPrinted = true;
+        }
+
+        // Read headers
         size_t content_length;
-        
-        try // reading headers
+
+        try
         {
             string[string] headers = readmsg();
-            
+
             const(string)* ContentLength = "Content-Length" in headers;
             if (ContentLength == null)
                 throw new Exception("HTTP missing field: 'Content-Length'");
-            
+
             content_length = to!size_t(*ContentLength);
         }
         catch (Exception ex)
         {
             error(ex.msg);
-            goto Lrequest;
+            return ADAPTER_CONTINUE;
         }
-        
+
         string jsonbody = cast(string)transport.read(content_length);
-        
+
         // Parse body as JSON
         JSONValue j = parseJSON(jsonbody);
         request_id = required!int(j, "seq");
@@ -283,15 +277,15 @@ class DAPAdapter : IAdapter
         {
             logWarn("Message is not type 'request', but '%s', ignoring", mtype);
         }
-        
+
         // Extract command from its name
         const(JSONValue) *jcommand = "command" in j;
         if (jcommand == null)
         {
             error("'command' field missing");
-            goto Lrequest;
+            return ADAPTER_CONTINUE;
         }
-        
+
         // Get function from command name
         request_command = jcommand.str();
         logTrace("command: '%s'", request_command);
@@ -299,24 +293,28 @@ class DAPAdapter : IAdapter
         if (func == null)
         {
             error(text("Command not found: '", request_command, ","));
-            goto Lrequest;
+            return ADAPTER_CONTINUE;
         }
-        
+
         // Execute command
-        try if ((*func)(j) == QUIT)
-            return;
+        try return (*func)(j);
         catch (Exception ex)
+        {
             error(ex.msg);
-        goto Lrequest;
+            return ADAPTER_CONTINUE;
+        }
     }
-    
-    void event(ref DebuggerEvent event)
+
+    void sendEvent(DebuggerEvent event, ITransport t)
     {
+        transport = t;
+
         logTrace("Event=%s", event.type);
-        
+
         JSONValue j;
         j["seq"] = current_seq++;
-        
+        j["type"] = "event";
+
         switch (event.type) with (DebuggerEventType) {
         case output:
             j["event"] = "output";
@@ -330,27 +328,36 @@ class DAPAdapter : IAdapter
             ];
             break;
         case stopped:
-            j["reason"] = eventStoppedReasonString(event.stopped.reason);
-            //j["description"] = event.stopped.description;
-            //j["threadId"] = event.stopped.threadId;
+            j["event"] = "stopped";
+            JSONValue body_;
+            body_["reason"] = eventStoppedReasonString(event.stopped.reason);
+            //body_["description"] = event.stopped.description;
+            //body_["threadId"] = event.stopped.threadId;
+            j["body"] = body_;
             break;
         case exited:
-            j["exitCode"] = event.exited.code;
+            j["event"] = "exited";
+            JSONValue body_;
+            body_["exitCode"] = event.exited.code;
+            j["body"] = body_;
             break;
         default:
-            throw new Exception(text("Event unimplemented: ", event.type));
+            logWarn("Event unimplemented: %s", event.type);
+            return;
         }
         reply(j);
     }
-    
+
 private:
-    /// 
+    ///
     ITransport transport;
-    /// 
+    ///
     IDebugger debugger;
-    
-    /// 
+
+    ///
     bool initialized;
+    /// Whether server capabilities have been printed
+    bool capsPrinted;
     /// Server sequencial ID.
     int current_seq = 1;
     /// Request ID
@@ -359,7 +366,7 @@ private:
     string request_command;
     /// Implemented commands.
     int delegate(ref JSONValue)[string] commands;
-    
+
     struct ClientCapabilities
     {
         string adapterId;
@@ -369,7 +376,7 @@ private:
         string locale;
         /// 'path' or 'uri'
         PathFormat pathFormat;
-        
+
         Capability[] capabilities = [
             { "linesStartAt1", true },
             { "columnsStartAt1", true },
@@ -385,8 +392,8 @@ private:
         ];
     }
     ClientCapabilities client;
-    
-    // NOTE: Set to true when server supports 
+
+    // NOTE: Set to true when server supports
     struct ServerCapabilities
     {
         Capability[] capabilities = [
@@ -427,38 +434,38 @@ private:
         ];
     }
     ServerCapabilities server;
-    
+
     string[string] readmsg()
     {
         string[string] headers;
-        
+
     Lentry:
         // Read one HTTP field
         string line = strip( cast(string)transport.readline() );
         logTrace("line: %s", line);
         if (line.length == 0)
             return headers;
-        
+
         // Get field separator (':')
         ptrdiff_t fieldidx = indexOf(line, ':');
         if (fieldidx < 0)
             throw new Exception("HTTP field delimiter not found");
         if (fieldidx + 1 >= line.length)
             throw new Exception("HTTP missing value");
-        
+
         // Check field name
         string field = strip( line[0 .. fieldidx] );
         string value = strip( line[fieldidx + 1 .. $] );
         headers[field] = value;
-        
+
         goto Lentry;
     }
-    
+
     void reply(ref JSONValue j)
     {
         transport.send(cast(ubyte[])j.toString());
     }
-    
+
     void success()
     {
         JSONValue j;
@@ -469,7 +476,7 @@ private:
         j["success"] = true;
         reply(j);
     }
-    
+
     void success(ref JSONValue body_)
     {
         JSONValue j;
@@ -481,11 +488,11 @@ private:
         j["body"] = body_;
         reply(j);
     }
-    
+
     void error(string message)
     {
         logError("Error=%s", message);
-        
+
         JSONValue j;
         j["seq"] = current_seq++;
         j["request_seq"] = request_id;
