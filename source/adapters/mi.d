@@ -161,44 +161,27 @@ final class MIAdapter : IAdapter
         commands["exec-run"] =
         commands["run"] =
         (string[] args) {
-            // TODO: Determine if current thread is stopped
-            //if (current_tid) debugger.continueThread(current_tid);
-            // NOTE: Since we don't yet support mi-async (cough, Windows), everything is
-            //       ran synchronously.
-            // A typical session should look like this:
-            // ~"Starting program: ... \n"
-            // =thread-group-started,id="i1",pid="21552"
-            // ^running
-            // *running,thread-id="all"
-            // (gdb)
-            // ~"\nProgram received signal SIGSEGV, Segmentation fault.\n"
-            // ~"0x0000000000000000 in ?? ()\n"
-            // *stopped,reason="...",...
-            // (gdb)
-        Levent:
-            /*
+            if (exec_path is null)
+            {
+                replyError("No executable specified. Use 'file-exec-and-symbols' first.");
+                return ADAPTER_CONTINUE;
+            }
+
             try
             {
-                DebuggerEvent event = debugger.wait();
-                logTrace("event=%s", event);
-                sendEvent(event);
-            
-                switch (event.type) with (DebuggerEventType) {
-                case exited: // Process exited, no more events
-                    break;
-                default:
-                    goto Levent;
-                }
+                debugger.launch(exec_path, exec_args, exec_dir);
             }
             catch (Exception ex)
             {
                 replyError(ex.msg);
                 return ADAPTER_CONTINUE;
             }
+
+            reply("~\"Starting program: "~exec_path~"\\n\"");
+            // TODO: =thread-group-started,id="i1",pid="21552"
             replyRunning();
+            // TODO: *running,thread-id="all"
             return ADAPTER_CONTINUE;
-            */
-            throw new Exception("todo");
         };
         // Resume process execution from a stopped state.
         commands["exec-continue"] =
