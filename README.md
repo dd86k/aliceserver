@@ -25,6 +25,7 @@ Uses:
 
 Cool ideas:
 - Using Aliceserver to bridge DAP to other remote endpoints, like GDB Remote Serial Protocol.
+  - ie, MIProxyDebugger/DAPProxyDebugger: take requests and format them to client
 
 # Implementation Details
 

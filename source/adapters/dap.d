@@ -351,24 +351,25 @@ class DAPAdapter : IAdapter
         return "dap";
     }
 
+    // No initial handshaking needed for DAP.
+    void init(ITransport t)
+    {
+        // Logging purposes
+        string servercap;
+        foreach (ref Capability capability; server.capabilities)
+            if (capability.supported)
+                servercap ~= text(" ", capability.prettyName());
+        if (servercap == string.init)
+            servercap = " none";
+        logInfo("Server capabilities:%s", servercap);
+        capsPrinted = true;
+    }
+
     // Handle one incoming request from transport.
     int handleRequest(IDebugger d, ITransport t)
     {
         debugger  = d;
         transport = t;
-
-        // Print server capabilities on first request
-        if (!capsPrinted)
-        {
-            string servercap;
-            foreach (ref Capability capability; server.capabilities)
-                if (capability.supported)
-                    servercap ~= text(" ", capability.prettyName());
-            if (servercap == string.init)
-                servercap = " none";
-            logInfo("Server capabilities:%s", servercap);
-            capsPrinted = true;
-        }
 
         // Read headers
         size_t content_length;

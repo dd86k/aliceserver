@@ -74,45 +74,66 @@ struct MIReply
 
 MIReply send(string data)
 {
-    __gshared char[4096] buffer;
-    
-    // Read as much output first, then when we see "(gdb)" or "(lldb)",
-    // we're free to send our command then
+    // Wait for "(gdb)" prompt, then send command
+Lwait:
+    string line = stripRight( server.stdout.readln() );
+    log(Op.receiving, line);
+
+    if (line is null)
+    {
+        MIReply eof;
+        eof.type = 0;
+        return eof;
+    }
+
+    if (line.length == 0)
+        goto Lwait;
+
+    // Prompt means server is ready for input
+    if (line == "(gdb)")
+    {
+        log(Op.sending, data);
+        server.stdin.write(data, '\n');
+        server.stdin.flush();
+    }
+    else
+    {
+        // Async output before prompt (e.g. events), skip
+        log(Op.trace, line);
+    }
+
+    // Read response lines until we get a result record
 Lread:
     string reply = stripRight( server.stdout.readln() );
-    
     log(Op.receiving, reply);
-    
-    if (reply.length <= 1)
+
+    if (reply is null)
     {
-        error(3, "incomplete data");
-        goto Lread;
+        MIReply eof;
+        eof.type = 0;
+        return eof;
     }
-    
+
+    if (reply.length == 0)
+        goto Lread;
+
     MIReply mi;
     mi.type  = reply[0];
     mi.body_ = reply[1..$];
-    
+
     switch (mi.type) {
     case '~': // console
-    
         goto Lread;
     case '&': // logStream
-    case '=': // notify:
+    case '=': // notify
+    case '*': // exec async
         log(Op.trace, mi.body_);
         goto Lread;
     case '^': // result
         return mi;
-    default: // Include unknown reads and "(gdb)\n" here
+    default: // "(gdb)" or unknown
+        goto Lread;
     }
-    
-    // Send command
-    log(Op.sending, data);
-    server.stdin.write(data, '\n');
-    server.stdin.flush();
-    
-    // Read until we see a reply
-    goto Lread;
 }
 
 int main(string[] args)
@@ -171,7 +192,7 @@ OPTIONS`, ores.options);
     
     // Spawn server, redirect all except stderr (inherits handle)
     log(Op.info, "Starting %s...", oserver);
-    string[] launchopts = svropts ~ [ "--adapter=mi" ] ~ (args.length >= 1 ? args[1..$] : []);
+    string[] launchopts = svropts ~ (args.length >= 1 ? args[1..$] : []);
     server = pipeProcess(launchopts, Redirect.stdin | Redirect.stdout);
     // NOTE: waitTimeout is only defined for Windows,
     //       despite Pid.performWait being available for POSIX
@@ -179,7 +200,26 @@ OPTIONS`, ores.options);
     if (tryWait(server.pid).terminated)
         return error(2, "Could not launch server");
     
-    send("show version");
-    
-    return 0;
+    MIReply ver = send("show version");
+    if (ver.type == 0)
+        return error(2, "Server disconnected during version check");
+
+    log(Op.info, "Connected");
+
+Lprompt:
+    write("tester> ");
+    string line = readln();
+    if (line is null) // EOF
+        return 0;
+    line = line.stripRight();
+    if (line.length == 0)
+        goto Lprompt;
+
+    MIReply reply = send(line);
+
+    // Server closed the connection (quit/exit)
+    if (reply.type == 0)
+        return 0;
+
+    goto Lprompt;
 }

@@ -108,6 +108,9 @@ void startServer(ServerSettings settings)
     // Create debugger instance for adapter
     IDebugger debugger = new AliceDebugger();
     
+    // Let the adapter perform any initial handshaking
+    adapter.init(transport);
+
     // Server-owned poll loop
     while (true)
     {

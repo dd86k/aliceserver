@@ -539,7 +539,14 @@ final class MIAdapter : IAdapter
         case 2: return "mi2";
         }
     }
-    
+
+    // Send initial prompt to signal readiness.
+    void init(ITransport t)
+    {
+        transport = t;
+        sendPrompt();
+    }
+
     int handleRequest(IDebugger d, ITransport t)
     {
         debugger = d;
@@ -556,7 +563,6 @@ final class MIAdapter : IAdapter
             tracebuf.reserve(512);
         }
 
-        sendPrompt(); // Ready!
         string fullrequest = cast(string)transport.readline();
 
         // Parse request
@@ -597,12 +603,16 @@ final class MIAdapter : IAdapter
         }
 
         // Execute
-        try return (*fq)(request.args);
+        int result;
+        try result = (*fq)(request.args);
         catch (Exception ex)
         {
             replyError(ex.msg);
-            return ADAPTER_CONTINUE;
+            result = ADAPTER_CONTINUE;
         }
+
+        sendPrompt();
+        return result;
     }
 
     void sendEvent(DebuggerEvent event, ITransport t)

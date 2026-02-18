@@ -17,6 +17,8 @@ enum
 interface IAdapter
 {
     string name();
+    /// Perform initial handshaking before the main loop starts polling.
+    void init(ITransport transport);
     /// Handle one incoming request from transport. Returns ADAPTER_CONTINUE or ADAPTER_QUIT.
     int handleRequest(IDebugger debugger, ITransport transport);
     /// Format a debugger event as protocol output, send via transport.
