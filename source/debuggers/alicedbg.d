@@ -52,7 +52,7 @@ class AliceDebugger : IDebugger
 
     void launch(string exec, string[] args, string dir)
     {
-        logTrace("exec=%s args=%s dir=%d", exec, args, dir);
+        logTrace("exec=%s args=%s dir=%s", exec, args, dir);
         int rc = adbg_easy_spawn(ez, exec.toStringz());
         if (rc < 0)
             throw new AlicedbgException();

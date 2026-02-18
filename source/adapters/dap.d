@@ -624,9 +624,9 @@ private:
         reply(j);
     }
 
-    void error(string message)
+    void error(string message, size_t line_ = __LINE__)
     {
-        logError("Error=%s", message);
+        logError("Error=%s (%u)", message, line_);
 
         JSONValue j;
         j["seq"] = current_seq++;
