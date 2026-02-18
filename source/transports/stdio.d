@@ -18,14 +18,15 @@ class StdioTransport : ITransport
 
     ubyte[] readline()
     {
-        return cast(ubyte[])stdin.readln();
+        stdin.readln(buffer);
+        return cast(ubyte[])buffer;
     }
 
     ubyte[] read(size_t size)
     {
         if (size > buffer.length)
             buffer.length = size;
-        return stdin.rawRead(buffer[0..size]);
+        return cast(ubyte[])stdin.rawRead(buffer[0..size]);
     }
 
     void send(ubyte[] data)
@@ -63,5 +64,5 @@ class StdioTransport : ITransport
     }
 
 private:
-    ubyte[] buffer;
+    char[] buffer;
 }
