@@ -4,7 +4,7 @@ authors "dd86k <dd@dax.moe>"
 copyright "Copyright © 2024, dd86k <dd@dax.moe>"
 license "BSD-3-Clause-Clear"
 
-dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="c8cb6bafedb438d629db7c22526c2e5e1ebe7bc5"
+dependency "alicedbg" repository="git+https://github.com/dd86k/alicedbg.git" version="8aef7d4629ade0ebcfe579f234ffd81927fa351b"
 dependency "ddlogger" repository="git+https://github.com/dd86k/ddlogger.git" version="f432d330da588f6043f32ab50cc4a69192d38629"
 
 # NOTE: By default, docs are built with dependencies.
