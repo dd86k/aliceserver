@@ -47,11 +47,13 @@ class StdioTransport : ITransport
         }
         else version (Windows)
         {
-            import core.sys.windows.wincon : GetNumberOfConsoleInputEvents;
-            import core.sys.windows.winbase : GetStdHandle, STD_INPUT_HANDLE;
-            DWORD events;
-            cast(void)GetNumberOfConsoleInputEvents(GetStdHandle(STD_INPUT_HANDLE), &events);
-            return events > 0;
+            import core.sys.windows.winbase : GetStdHandle, STD_INPUT_HANDLE, PeekNamedPipe;
+            import core.sys.windows.windef : DWORD;
+            DWORD available;
+            if (PeekNamedPipe(GetStdHandle(STD_INPUT_HANDLE), null, 0, null, &available, null))
+                return available > 0;
+            // PeekNamedPipe fails for console handles; fall back to blocking
+            return true;
         }
         else
         {
