@@ -285,6 +285,7 @@ class DAPAdapter : IAdapter
             JSONValue jargs = required!JSONValue(j, "arguments");
             string path = required!string(jargs, "path");
             debugger.launch(path, null, null);
+            success();
             return ADAPTER_CONTINUE;
         };
         // Attach debugger to process
@@ -298,6 +299,7 @@ class DAPAdapter : IAdapter
             JSONValue jargs = required!JSONValue(j, "arguments");
             int pid = required!int(jargs, "pid");
             debugger.attach(pid);
+            success();
             return ADAPTER_CONTINUE;
         };
         // Continue debugging session
@@ -311,6 +313,7 @@ class DAPAdapter : IAdapter
             JSONValue jargs = required!JSONValue(j, "arguments");
             int tid = required!int(jargs, "threadId");
             debugger.continueThread(tid);
+            success();
             return ADAPTER_CONTINUE;
         };
         // Disconnect from the debugger"

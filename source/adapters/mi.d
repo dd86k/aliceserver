@@ -205,12 +205,14 @@ final class MIAdapter : IAdapter
         commands["continue"] =
         (string[] args) {
             debugger.continueThread(current_tid);
+            replyRunning();
             return ADAPTER_CONTINUE;
         };
         // Terminate process.
         commands["exec-abort"] =
         (string[] args) {
             debugger.terminate();
+            replyDone();
             return ADAPTER_QUIT;
         };
         // attach PID
@@ -245,6 +247,7 @@ final class MIAdapter : IAdapter
         commands["detach"] =
         (string[] args) {
             debugger.detach();
+            replyDone();
             return ADAPTER_CONTINUE;
         };
         // -target-disconnect
@@ -252,6 +255,7 @@ final class MIAdapter : IAdapter
         commands["target-disconnect"] =
         (string[] args) {
             debugger.detach();
+            replyDone();
             return ADAPTER_CONTINUE;
         };
         // target TYPE [OPTIONS]
@@ -526,6 +530,7 @@ final class MIAdapter : IAdapter
         commands["q"] =
         (string[] args) {
             if (debugger.attached()) debugger.terminate();
+            reply(`^exit`);
             return ADAPTER_QUIT;
         };
     }
