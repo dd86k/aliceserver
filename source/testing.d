@@ -143,6 +143,11 @@ class MockDebugger : IDebugger
         calls ~= Call("detach");
     }
 
+    void pause()
+    {
+        calls ~= Call("pause");
+    }
+
     void continueThread(int tid)
     {
         import std.conv : text;

@@ -140,6 +140,9 @@ interface IDebugger
     /// Detach debugger from process.
     void detach();
     
+    /// Pause/interrupt a running process.
+    void pause();
+
     /// Continue thread.
     void continueThread(int tid);
     

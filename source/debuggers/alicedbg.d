@@ -73,6 +73,14 @@ class AliceDebugger : IDebugger
         return attached_;
     }
 
+    void pause()
+    {
+        enforceActiveProcess();
+        int rc = adbg_easy_pause(ez);
+        if (rc < 0)
+            throw new AlicedbgException();
+    }
+
     void continueThread(int tid)
     {
         logTrace("tid=%d", tid);

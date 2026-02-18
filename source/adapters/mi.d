@@ -139,10 +139,8 @@ final class MIAdapter : IAdapter
         // TODO: Implement these commands
         //       - -exec-finish: functionOut
         //       - -exec-next: nextLine
-        //       - -exec-interrupt: pause
         //       - -exec-step: instructionStep
         //       - -exec-continue: continue
-        //       - -exec-interrupt [--all|--thread-group N]: pause
         //       - -exec-jump LOCSPEC: continue example.c:10
         //       - -exec-show-arguments
         //       - set mi-async 0/1
@@ -197,6 +195,15 @@ final class MIAdapter : IAdapter
             debugger.terminate();
             replyDone();
             return ADAPTER_QUIT;
+        };
+        // -exec-interrupt [--all|--thread-group N]
+        // Interrupt a running process.
+        commands["exec-interrupt"] =
+        commands["pause"] =
+        (string[] args) {
+            debugger.pause();
+            replyDone();
+            return ADAPTER_CONTINUE;
         };
         // attach PID
         // Attach debugger to process by its ID.
