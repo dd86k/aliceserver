@@ -103,6 +103,13 @@ Lread:
             onEvent(j);
             goto Lread;
         }
+        if (const(JSONValue) *jbody = "body" in j)
+        {
+            if (const(JSONValue) *jerror = "error" in *jbody)
+            {
+                log(Op.error, jerror.str);
+            }
+        }
 
         return j;
     }
@@ -251,7 +258,7 @@ Lprompt:
     
     switch (args[0]) {
     case "help":
-        log(Op.info, "Commands: attach PID, spawn PATH, disconnect, terminate, quit");
+        log(Op.info, "Commands: attach PID, launch PATH, disconnect, terminate, quit");
         break;
     case "attach": // pid
         if (args.length < 2)
