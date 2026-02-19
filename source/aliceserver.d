@@ -28,7 +28,7 @@ immutable string PROJECT_COPYRIGHT = "Copyright (c) 2024-2026 github.com/dd86k <
 /// Adapter type, defaults to dap.
 enum AdapterType
 {
-    dap,    /// Debugging Adapter Protocol
+    dap,    /// Debug Adapter Protocol
     mi,     /// GDB/MI, latest version
     mi2,    /// GDB/MI version 2
     mi3,    /// GDB/MI version 3
@@ -42,9 +42,9 @@ enum DebuggerType
 /// Transport type, defaults to stdio,
 enum TransportType
 {
-    stdio,  /// Standard streams
-    tcp,    /// TCP, for multisessions
-    pipe,   /// UNIX socket or Windows NamedPipe, for multisessons
+    stdio,  /// Standard streams (single session)
+    tcp,    /// TCP (multi session)
+    pipe,   /// UNIX socket or Windows NamedPipe (multi session)
 }
 
 struct DebuggerSettings
@@ -63,38 +63,34 @@ struct ServerSettings
     AdapterType  adapter;
     TransportType transport;
 
-    bool multi; /// Multisession support
-
     ushort port; // GraalVM uses 4711, but only does TCP
     string host;
 }
 
-// transport handler
 void startServer(ServerSettings settings)
 {
-    // Only DAP supports multisession
-    // Or if we init adapter with AdapterSettings... Make the adapter throw?
-    if (settings.multi && settings.adapter != AdapterType.dap)
-        throw new Exception("Only DAP supports multisession");
-    
-    // Create transport
-    ITransport transport = void;
     final switch (settings.transport) {
     case TransportType.stdio:
-        transport = new StdioTransport();
+        // Single session: stdio is one-shot
+        runSession(settings, new StdioTransport());
         break;
     case TransportType.tcp:
-        transport = acceptSocketTransport(settings.host, settings.port);
+        listenTcp(settings);
         break;
     case TransportType.pipe:
         version (Windows)
             throw new Exception("TODO: NamedPipeTransport");
         else
-            transport = acceptUnixTransport(settings.host);
+            listenUnix(settings);
         break;
     }
-    
-    // Create adapter
+}
+
+private:
+
+/// Run a single debug session on the given transport.
+void runSession(ServerSettings settings, ITransport transport)
+{
     logDebugging("adapter=%s", settings.adapter);
     IAdapter adapter = void;
     final switch (settings.adapter) with (AdapterType) {
@@ -114,11 +110,8 @@ void startServer(ServerSettings settings)
         adapter = new MIAdapter(4);
         break;
     }
-    
-    // Create debugger instance for adapter
+
     IDebugger debugger = new AliceDebugger();
-    
-    // Let the adapter perform any initial handshaking
     adapter.init(transport);
 
     // Server-owned poll loop
@@ -140,46 +133,54 @@ void startServer(ServerSettings settings)
     if (debugger.attached()) debugger.terminate();
 }
 
-private SocketTransport acceptSocketTransport(string host, ushort port)
+/// Listen on TCP, accepting connections in a loop.
+void listenTcp(ServerSettings settings)
 {
-    if (host is null)
-        host = "localhost";
-    if (port == 0)
+    string host = settings.host !is null ? settings.host : "localhost";
+    if (settings.port == 0)
         throw new Exception("I refuse to listen on port 0");
 
-    Socket listener = new Socket(AddressFamily.INET, SocketType.STREAM, ProtocolType.TCP);
+    auto listener = new Socket(AddressFamily.INET, SocketType.STREAM, ProtocolType.TCP);
     scope(exit) listener.close();
 
     listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
-    listener.bind(new InternetAddress(host, port));
+    listener.bind(new InternetAddress(host, settings.port));
     listener.listen(1);
-    logInfo("Listening on %s:%d", host, port);
+    logInfo("Listening on %s:%d", host, settings.port);
 
-    Socket conn = listener.accept();
-    logInfo("Accepted connection");
-    return new SocketTransport(conn);
+    while (true)
+    {
+        Socket conn = listener.accept();
+        logInfo("Accepted connection");
+        runSession(settings, new SocketTransport(conn));
+        logInfo("Session ended, waiting for next connection");
+    }
 }
 
+/// Listen on a Unix socket, accepting connections in a loop.
 version (Posix)
-private SocketTransport acceptUnixTransport(string path)
+void listenUnix(ServerSettings settings)
 {
     import std.file : exists, remove;
 
-    if (path is null)
+    if (settings.host is null)
         throw new Exception("Unix socket path is required");
 
-    // Clean up stale socket file
-    if (exists(path))
-        remove(path);
+    if (exists(settings.host))
+        remove(settings.host);
 
-    Socket listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
+    auto listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
     scope(exit) listener.close();
 
-    listener.bind(new UnixAddress(path));
+    listener.bind(new UnixAddress(settings.host));
     listener.listen(1);
-    logInfo("Listening on %s", path);
+    logInfo("Listening on %s", settings.host);
 
-    Socket conn = listener.accept();
-    logInfo("Accepted connection");
-    return new SocketTransport(conn);
+    while (true)
+    {
+        Socket conn = listener.accept();
+        logInfo("Accepted connection");
+        runSession(settings, new SocketTransport(conn));
+        logInfo("Session ended, waiting for next connection");
+    }
 }

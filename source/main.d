@@ -63,7 +63,6 @@ void main(string[] args)
                     " A full list can be read using --list-adapters"));
             }
         },
-        "multi",    "Enable multi-session support", &osettings.multi,
         //
         // Transport options
         //
