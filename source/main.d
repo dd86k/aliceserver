@@ -44,8 +44,8 @@ void main(string[] args)
         //
         "list-adapters",  `List available adapters`, {
             writeln("Adapters:");
-            writeln("dap ....... (default) Debug Adapter Protocol");
-            writeln("mi ........ GDB/MI (GDB Machine Interface), lastest version");
+            writeln("dap ....... Debug Adapter Protocol (default)");
+            writeln("mi ........ GDB/MI (GDB Machine Interface), latest version");
             writeln("mi2 ....... GDB/MI version 2");
             writeln("mi3 ....... GDB/MI version 3");
             writeln("mi4 ....... GDB/MI version 4");
@@ -104,14 +104,15 @@ void main(string[] args)
             exit(0);
         },
         "version",  `Show version page and quit`, {
-            write(
-            "aliceserver ", PROJECT_VERSION, "\n",
-            "            Built: ", __TIMESTAMP__, "\n",
-            "            Compiler: ", __VENDOR__, " ", VER!__VERSION__, "\n",
-            "            ", PROJECT_COPYRIGHT, "\n",
-            "            ", PROJECT_LICENSE, "\n",
-            "alicedbg    ", ADBG_VERSION, "\n",
-            );
+            static immutable string verpage =
+            "aliceserver " ~ PROJECT_VERSION ~ "\n"~
+            "            Built: " ~ __TIMESTAMP__ ~ "\n"~
+            "            Compiler: " ~ __VENDOR__ ~ " " ~ VER!__VERSION__ ~ "\n"~
+            "            " ~ PROJECT_COPYRIGHT ~ "\n"~
+            "            " ~ PROJECT_LICENSE ~ "\n"~
+            "alicedbg    " ~ ADBG_VERSION ~ "\n";
+            
+            write(verpage);
             exit(0);
         }
         );
