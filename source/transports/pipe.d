@@ -1,25 +1,25 @@
-/// Socket transport for connected TCP or Unix sockets.
+/// Transport using Windows' NamedPipes.
 ///
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
 /// License: BSD-3-Clause-Clear
-module transports.socket;
+module transports.pipe;
 
-public import std.socket;
+version (Windows):
+
 import transport : ITransport;
-import core.time : Duration;
+import core.sys.windows.windef : HANDLE, DWORD, FALSE;
+import core.sys.windows.winbase : ReadFile, WriteFile, PeekNamedPipe;
 
-/// Wraps an already-connected socket as an ITransport.
-class SocketTransport : ITransport
+class NamedPipeTransport : ITransport
 {
-    /// Takes an already-connected socket (e.g. from accept()).
-    this(Socket sock)
+    /// Takes an already-connected pipe handle (after ConnectNamedPipe).
+    this(HANDLE connectedPipe)
     {
-        socket = sock;
-        set = new SocketSet(4); // defaults to FD_SETSIZE=64 (Windows)
+        pipe = connectedPipe;
     }
 
-    string name() { return "socket"; }
+    string name() { return "pipe"; }
 
     ubyte[] readline()
     {
@@ -54,7 +54,9 @@ class SocketTransport : ITransport
 
     void send(ubyte[] data)
     {
-        socket.send(data);
+        DWORD written;
+        if (WriteFile(pipe, data.ptr, cast(DWORD)data.length, &written, null) == FALSE)
+            throw new Exception("WriteFile error");
     }
 
     bool hasData()
@@ -62,15 +64,14 @@ class SocketTransport : ITransport
         // If we have unconsumed data, no need to check the socket
         if (consumed < fill)
             return true;
-        // reset+add is cheaper than re-creating SocketSet due to .length=size
-        set.reset();
-        set.add(socket);
-        return Socket.select(set, null, null, Duration.zero) > 0;
+        DWORD available;
+        if (PeekNamedPipe(pipe, null, 0, null, &available, null))
+            return available > 0;
+        return false;
     }
 
 private:
-    Socket socket;
-    SocketSet set;
+    HANDLE pipe;
 
     ubyte[] buf;
     size_t consumed; // start of unread data
@@ -89,12 +90,10 @@ private:
         if (fill + CHUNK > buf.length)
             buf.length = fill + CHUNK;
 
-        ptrdiff_t n = socket.receive(buf[fill .. fill + CHUNK]);
-        if (n == 0)
-            throw new Exception("Socket closed by remote end");
-        if (n == Socket.ERROR)
-            throw new Exception("Socket receive error");
-        fill += n;
+        DWORD read;
+        if (ReadFile(pipe, buf.ptr + fill, CHUNK, &read, null) == FALSE)
+            throw new Exception("ReadFile error");
+        fill += read;
     }
 
     void compactBuffer()

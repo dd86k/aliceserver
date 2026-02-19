@@ -79,7 +79,7 @@ void startServer(ServerSettings settings)
         break;
     case TransportType.pipe:
         version (Windows)
-            throw new Exception("TODO: NamedPipeTransport");
+            listenPipe(settings);
         else
             listenUnix(settings);
         break;
@@ -88,7 +88,7 @@ void startServer(ServerSettings settings)
 
 private:
 
-/// Run a single debug session on the given transport.
+/// Run new session on the given transport.
 void runSession(ServerSettings settings, ITransport transport)
 {
     logDebugging("adapter=%s", settings.adapter);
@@ -169,7 +169,7 @@ void listenUnix(ServerSettings settings)
     if (exists(settings.host))
         remove(settings.host);
 
-    auto listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
+    Socket listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
     scope(exit) listener.close();
 
     listener.bind(new UnixAddress(settings.host));
@@ -182,5 +182,57 @@ void listenUnix(ServerSettings settings)
         logInfo("Accepted connection");
         runSession(settings, new SocketTransport(conn));
         logInfo("Session ended, waiting for next connection");
+    }
+}
+
+version (Windows)
+void listenPipe(ServerSettings settings)
+{
+    import core.sys.windows.windef : HANDLE, DWORD, TRUE, FALSE;
+    import core.sys.windows.winbase :
+        INVALID_HANDLE_VALUE,
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE, PIPE_WAIT,
+        NMPWAIT_USE_DEFAULT_WAIT,
+        CreateNamedPipeA, ConnectNamedPipe, DisconnectNamedPipe, CloseHandle;
+    import std.string : toStringz;
+    import std.algorithm : startsWith;
+    import transports.pipe : NamedPipeTransport;
+
+    enum DWORD PIPE_REJECT_REMOTE_CLIENTS = 0x00000008;
+
+    if (settings.host is null)
+        throw new Exception("Pipe name is required (e.g. --pipe=aliceserver)");
+
+    string pipeName = settings.host.startsWith(`\\`) ? settings.host : `\\.\pipe\` ~ settings.host;
+
+    logInfo("Listening on %s", pipeName);
+
+    while (true)
+    {
+        // Create a new pipe instance for each connection
+        HANDLE pipe = CreateNamedPipeA(pipeName.toStringz(),
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            4096, 4096,
+            NMPWAIT_USE_DEFAULT_WAIT,
+            null);
+        if (pipe == INVALID_HANDLE_VALUE)
+            throw new Exception("CreateNamedPipeA failed");
+
+        // Block until a client connects
+        if (ConnectNamedPipe(pipe, null) == FALSE)
+        {
+            CloseHandle(pipe);
+            throw new Exception("ConnectNamedPipe failed");
+        }
+
+        logInfo("Accepted connection");
+        runSession(settings, new NamedPipeTransport(pipe));
+        logInfo("Session ended, waiting for next connection");
+
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
     }
 }

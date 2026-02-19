@@ -78,7 +78,7 @@ void main(string[] args)
             osettings.port = to!ushort(val);
             osettings.transport = TransportType.tcp;
         },
-        "pipe",     "Use pipe transport and set name",
+        "pipe",     "Set name or path for pipe/unix transport",
         (string _, string val)
         {
             osettings.host = val;
