@@ -11,6 +11,7 @@ import adapters.mi  : MIAdapter;
 import core.thread : Thread;
 import core.time : msecs;
 import ddlogger;
+import std.socket;
 import debugger : IDebugger;
 import debuggers.alicedbg : AliceDebugger;
 import transport : ITransport;
@@ -83,13 +84,13 @@ void startServer(ServerSettings settings)
         transport = new StdioTransport();
         break;
     case TransportType.tcp:
-        transport = new SocketTransport(settings.host, settings.port);
+        transport = acceptSocketTransport(settings.host, settings.port);
         break;
     case TransportType.pipe:
         version (Windows)
             throw new Exception("TODO: NamedPipeTransport");
         else
-            transport = new SocketTransport(settings.host);
+            transport = acceptUnixTransport(settings.host);
         break;
     }
     
@@ -137,4 +138,48 @@ void startServer(ServerSettings settings)
         Thread.sleep(1.msecs);
     }
     if (debugger.attached()) debugger.terminate();
+}
+
+private SocketTransport acceptSocketTransport(string host, ushort port)
+{
+    if (host is null)
+        host = "localhost";
+    if (port == 0)
+        throw new Exception("I refuse to listen on port 0");
+
+    Socket listener = new Socket(AddressFamily.INET, SocketType.STREAM, ProtocolType.TCP);
+    scope(exit) listener.close();
+
+    listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+    listener.bind(new InternetAddress(host, port));
+    listener.listen(1);
+    logInfo("Listening on %s:%d", host, port);
+
+    Socket conn = listener.accept();
+    logInfo("Accepted connection");
+    return new SocketTransport(conn);
+}
+
+version (Posix)
+private SocketTransport acceptUnixTransport(string path)
+{
+    import std.file : exists, remove;
+
+    if (path is null)
+        throw new Exception("Unix socket path is required");
+
+    // Clean up stale socket file
+    if (exists(path))
+        remove(path);
+
+    Socket listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
+    scope(exit) listener.close();
+
+    listener.bind(new UnixAddress(path));
+    listener.listen(1);
+    logInfo("Listening on %s", path);
+
+    Socket conn = listener.accept();
+    logInfo("Accepted connection");
+    return new SocketTransport(conn);
 }

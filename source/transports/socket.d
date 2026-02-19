@@ -1,4 +1,4 @@
-/// Simple line-based transport.
+/// Socket transport for connected TCP or Unix sockets.
 ///
 /// Authors: dd86k <dd@dax.moe>
 /// Copyright: dd86k <dd@dax.moe>
@@ -7,92 +7,112 @@ module transports.socket;
 
 public import std.socket;
 import transport : ITransport;
-import core.sync.mutex;
 import core.time : Duration;
 
-// NOTE: Sockets are not synchronized and thus need the mutex
+/// Wraps an already-connected socket as an ITransport.
 class SocketTransport : ITransport
 {
-    // NOTE: socket type implicit from ctor isn't best but this is all internal anyway
-    
-    // Create a new Socket transport: TCP listener
-    this(string interface_, ushort port)
-    {
-        if (interface_ is null)
-            interface_ = "localhost";
-        if (port == 0)
-            throw new Exception("I refuse to listen to port 0");
-        Socket sock = new Socket(AddressFamily.INET, SocketType.STREAM, ProtocolType.TCP);
-        sock.bind(new InternetAddress(interface_, port));
-        this(sock);
-    }
-    
-    // Create a new Socket transport: UNIX Socket
-    this(string path)
-    {
-        Socket sock = new Socket(AddressFamily.UNIX, SocketType.STREAM);
-        sock.bind(new UnixAddress(path));
-        this(sock);
-    }
-    
+    /// Takes an already-connected socket (e.g. from accept()).
     this(Socket sock)
     {
         socket = sock;
-        // defaults to FD_SETSIZE=64 on Windows, a little too much
-        set = new SocketSet(4);
-        set.add(socket);
-        mutex = new shared Mutex();
+        set = new SocketSet(4); // defaults to FD_SETSIZE=64 (Windows
     }
-    
+
     string name() { return "socket"; }
-    
+
     ubyte[] readline()
     {
-        throw new Exception("Not implemented");
+        // Scan for newline in buffered data, fetching more as needed
+        while (true)
+        {
+            // Search existing buffered data for a newline
+            foreach (i, b; buf[consumed .. fill])
+            {
+                if (b == '\n')
+                {
+                    size_t lineEnd = consumed + i; // index of '\n'
+                    ubyte[] line = buf[consumed .. lineEnd];
+                    consumed = lineEnd + 1; // skip past '\n'
+                    compactBuffer();
+                    return line;
+                }
+            }
+            // No newline found yet — read more data
+            fillBuffer();
+        }
     }
-    
+
     ubyte[] read(size_t size)
     {
-        if (size > buffer.length)
-        {
-            buffer.length = size;
-        }
-        
-        ptrdiff_t sz = socket.receive(buffer[0..size]);
-        switch (sz) {
-        case 0:
-            return null;
-        case Socket.ERROR:
-            throw new Exception("Socket error");
-        default:
-        }
-        
-        throw new Exception("Not implemented");
+        ensureAvailable(size);
+        ubyte[] result = buf[consumed .. consumed + size];
+        consumed += size;
+        compactBuffer();
+        return result;
     }
-    
+
     void send(ubyte[] data)
     {
-        mutex.lock_nothrow();
-        scope(exit) mutex.unlock_nothrow();
-
-        socket.send(data); // throw allowed
+        socket.send(data);
     }
 
     bool hasData()
     {
-        // Select with zero timeout for non-blocking check
+        // If we have unconsumed data, no need to check the socket
+        if (consumed < fill)
+            return true;
+        // reset+add is cheaper than re-creating SocketSet due to .length=size
+        set.reset();
+        set.add(socket);
         return Socket.select(set, null, null, Duration.zero) > 0;
     }
 
 private:
-    // Used to synchronize sending messages, avoids breaking messages by waiting
-    // until the current message is out when there will eventually multithread
-    // support.
-    shared Mutex mutex;
-    
-    ubyte[] buffer;     // Buffer allocated for reading
-    size_t bufpointer;  // Buffer pointer
-    
     Socket socket;
     SocketSet set;
+
+    ubyte[] buf;
+    size_t consumed; // start of unread data
+    size_t fill;     // end of valid data
+
+    void ensureAvailable(size_t needed)
+    {
+        while (fill - consumed < needed)
+            fillBuffer();
+    }
+
+    void fillBuffer()
+    {
+        enum CHUNK = 4096;
+        if (fill + CHUNK > buf.length)
+            buf.length = fill + CHUNK;
+
+        ptrdiff_t n = socket.receive(buf[fill .. fill + CHUNK]);
+        if (n == 0)
+            throw new Exception("Socket closed by remote end");
+        if (n == Socket.ERROR)
+            throw new Exception("Socket receive error");
+        fill += n;
+    }
+
+    void compactBuffer()
+    {
+        if (consumed == 0)
+            return;
+        if (consumed == fill)
+        {
+            consumed = 0;
+            fill = 0;
+        }
+        else if (consumed > 4096)
+        {
+            // Shift remaining data to front to avoid unbounded growth
+            import core.stdc.string : memmove;
+            size_t remaining = fill - consumed;
+            memmove(buf.ptr, buf.ptr + consumed, remaining);
+            fill = remaining;
+            consumed = 0;
+        }
+    }
 }
