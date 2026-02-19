@@ -15,7 +15,7 @@ Why?
 - gdb-mi is fine, but GDC is generally unavailable for Windows.
 - gdb-dap is written in Python and thus requires it.
 - Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
-- Reduce duplicated efforts in multiple package runtimes, with all transport and protocol options available.
+- Combine all transport/adapter options into one executable.
 - Aliceserver provides future directions for features in Alicedbg.
 
 Uses:
@@ -158,8 +158,8 @@ Command support:
 | `attach` | ✔️ | `__restart` argument not supported. |
 | `breakpointLocations` | ❌ | |
 | `completions` | ❌ | |
-| `configurationDone` | ❌ | |
-| `continue` | ❌ | |
+| `configurationDone` | ✔️ | |
+| `continue` | ✔️ | |
 | `dataBreakpointInfo` | ❌ | |
 | `disassemble` | ❌ | |
 | `disconnect` | ✔️ | |
@@ -210,12 +210,12 @@ Command support:
 | `loadedSource` | ❌ | |
 | `memory` | ❌ | |
 | `module` | ❌ | |
-| `output` | ❌ | |
+| `output` | ⚠️ | |
 | `process` | ❌ | |
 | `progressEnd` | ❌ | |
 | `progressStart` | ❌ | |
 | `progressUpdate` | ❌ | |
-| `stopped` | ❌ | |
+| `stopped` | ⚠️ | |
 | `terminated` | ❌ | |
 | `thread` | ❌ | |
   
@@ -273,13 +273,21 @@ NOTE: Command focus is on GDB, lldb-mi commands may work.
 
 | Request | Commands | Supported? | Comments |
 |---|---|---|---|
-| Attach | `attach` | ✔️ | |
-| Launch | `-exec-run`, `target exec`, `-exec-arguments` | ✔️ | |
-| Continue | `-exec-continue` | ✔️ | |
+| Attach | `target-attach`, `attach` | ✔️ | |
+| Launch | `-exec-run`, `run`, `target exec`, `-file-exec-and-symbols` | ✔️ | |
+| Set arguments | `-exec-arguments` | ✔️ | |
+| Continue | `-exec-continue`, `continue` | ✔️ | |
+| Pause | `-exec-interrupt`, `pause` | ✔️ | |
 | Terminate | `-exec-abort` | ✔️ | |
-| Detach | `-exec-detach`, `detach` | ✔️ | |
-| Set working directory | `environment-directory` | ✔️ | |
-| Disconnect | `q`, `quit`, `-gdb-exit` | ✔️ | |
+| Detach | `-target-detach`, `-gdb-detach`, `detach` | ✔️ | |
+| Disconnect | `-target-disconnect` | ✔️ | |
+| Set working directory | `-environment-cd` | ⚠️ | Stub, not fully implemented |
+| Thread info | `-thread-info` | ✔️ | |
+| Show | `show` | ⚠️ | Only `show version` supported |
+| Command info | `-info-gdb-mi-command` | ✔️ | |
+| List features | `-list-features` | ✔️ | |
+| Settings | `-gdb-set`, `-inferior-tty-set` | ⚠️ | Stubs required by clients |
+| Quit | `-gdb-exit`, `quit`, `q` | ✔️ | |
 
 ### Supported Events
 
@@ -288,7 +296,7 @@ NOTE: Command focus is on GDB, lldb-mi commands may work.
 | Continued | | ✔️ | |
 | Exited | Reasons: `exited`, `exited-normally` | ✔️ | |
 | Output | | ❌ | |
-| Stopped | | ❌ | |
+| Stopped | Reasons: `breakpoint-hit`, `signal-received`, `end-stepping-range` | ✔️ | |
 
 # Licensing
 
