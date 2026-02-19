@@ -16,6 +16,9 @@ import adbg.platform : ADBG_VERSION;
 // TODO: Attach available adapter types
 //       e.g., register them before calling getopt or statically in global memory
 
+debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
+else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
+
 template VER(uint ver)
 {
     enum VER =
@@ -28,41 +31,59 @@ template VER(uint ver)
 void main(string[] args)
 {
     ServerSettings osettings;
+    LogLevel olevel = DEFAULT_LOGLEVEL;
     
     //uint ologlevel;
     GetoptResult gres = void;
     try
     {
         // TODO: --list-capabilities: List DAP capabilities and GDB/MI features
-        // TODO: --tcp-port=NUMBER
         gres = getopt(args,
+        //
+        // Adapter options
+        //
         "list-adapters",  `List available adapters`, {
             writeln("Adapters:");
             writeln("dap ....... (default) Debug Adapter Protocol");
-            writeln("mi ........ GDB/MI (GDB Machine Interface) version 1");
+            writeln("mi ........ GDB/MI (GDB Machine Interface), lastest version");
+            writeln("mi2 ....... GDB/MI version 2");
+            writeln("mi3 ....... GDB/MI version 3");
+            writeln("mi4 ....... GDB/MI version 4");
             exit(0);
         },
         "a|adapter",`Set adapter to use`, (string _, string value) {
             switch (value) {
-            case "dap":
-                osettings.adapter.type = AdapterType.dap;
-                break;
-            case "mi":
-                osettings.adapter.type = AdapterType.mi;
-                break;
-            case "mi2":
-                osettings.adapter.type = AdapterType.mi2;
-                break;
-            case "mi3":
-                osettings.adapter.type = AdapterType.mi2;
-                break;
-            case "mi4":
-                osettings.adapter.type = AdapterType.mi4;
-                break;
+            case "dap": osettings.adapter = AdapterType.dap; break;
+            case "mi":  osettings.adapter = AdapterType.mi; break;
+            case "mi2": osettings.adapter = AdapterType.mi2; break;
+            case "mi3": osettings.adapter = AdapterType.mi3; break;
+            case "mi4": osettings.adapter = AdapterType.mi4; break;
             default:
                 throw new Exception(text("Invalid adapter: '", value, "'.",
                     " A full list can be read using --list-adapters"));
             }
+        },
+        "multi",    "Enable multi-session support", &osettings.multi,
+        //
+        // Transport options
+        //
+        "host",     "Set listening interface for TCP transport",
+        (string _, string val)
+        {
+            osettings.host = val;
+        },
+        "port",     "Use TCP transport and set listening port",
+        (string _, string val)
+        {
+            import std.conv : to;
+            osettings.port = to!ushort(val);
+            osettings.transport = TransportType.tcp;
+        },
+        "pipe",     "Use pipe transport and set name",
+        (string _, string val)
+        {
+            osettings.host = val;
+            osettings.transport = TransportType.pipe;
         },
         //
         // Logging
@@ -73,7 +94,7 @@ void main(string[] args)
         "logfile",  `Logger: Enable logging to file path`, (string _, string path) {
             logAddAppender(new FileAppender(path));
         },
-        "loglevel", `Logger: Set log level (default=info)`, &osettings.logLevel,
+        "loglevel", `Logger: Set log level (default=info)`, &olevel,
         // bundling+cumulative is possible, but defaults to trace in debug builds atm
         //config.bundling, "v+", `Verbose`, &ologlevel,
         //
@@ -106,7 +127,7 @@ void main(string[] args)
     {
         static immutable int optpad = -16;
         gres.options[$-1].help = "Show this help page and quit";
-        writeln("Debugger server\n\nOptions:");
+        writeln("Debugger server\n\nOPTIONS");
         foreach (Option opt; gres.options)
         {
             with (opt) if (optShort)
@@ -118,8 +139,8 @@ void main(string[] args)
     }
     
     // Setup logger
-    logSetLevel(osettings.logLevel);
-    logInfo("New instance with options %s", osettings);
+    logSetLevel(olevel);
+    logInfo("Server options: %s", osettings);
     
     // Run server
     try startServer(osettings);

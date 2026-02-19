@@ -5,54 +5,46 @@
 /// License: BSD-3-Clause-Clear
 module aliceserver;
 
-import std.stdio;
-import std.socket;
-import std.concurrency;
-import std.conv;
-import std.string;
-import core.thread;
-import core.time : msecs;
-import ddlogger;
 import adapter;
 import adapters.dap : DAPAdapter;
 import adapters.mi  : MIAdapter;
-import debugger;
+import core.thread : Thread;
+import core.time : msecs;
+import ddlogger;
+import debugger : IDebugger;
 import debuggers.alicedbg : AliceDebugger;
-import transport;
-import transports.stdio : StdioTransport;
+import transport : ITransport;
+import transports.socket : SocketTransport;
+import transports.stdio  : StdioTransport;
 
 /// Aliceserver version
 immutable string PROJECT_VERSION   = "0.0.0";
 /// Aliceserver license
 immutable string PROJECT_LICENSE   = "BSD-3-Clause-Clear";
 /// Aliceserver copyrights
-immutable string PROJECT_COPYRIGHT = "Copyright (c) 2024 github.com/dd86k <dd@dax.moe>";
+immutable string PROJECT_COPYRIGHT = "Copyright (c) 2024-2026 github.com/dd86k <dd@dax.moe>";
 
-// NOTE: Structure
-//
-//       The server can ultimately handle one adapter protocol, and if the
-//       adapter allows it, the server can handle multiple debugger sessions,
-//       often called "multi-session" servers, at the request of the adapter.
-//
-//       In general, the server understands close requests, but debuggers do not
-//       (their UI do, though). Debuggers only understand detach and terminate
-//       requests.
-
-// NOTE: Threading
-//
-//       The main thread handles the adapter instance, and one or
-//       more threads are spun on new debugger session requests.
-//
-//       Child thread handle their own debugger instance.
-//       (TODO) Attach debugger ID to requests.
-
-debug enum LogLevel DEFAULT_LOGLEVEL = LogLevel.trace;
-else  enum LogLevel DEFAULT_LOGLEVEL = LogLevel.info;
-
-/// Adapter type.
-enum AdapterType { dap, mi, mi2, mi3, mi4 }
-/// 
-enum DebuggerType { alicedbg }
+/// Adapter type, defaults to dap.
+enum AdapterType
+{
+    dap,    /// Debugging Adapter Protocol
+    mi,     /// GDB/MI, latest version
+    mi2,    /// GDB/MI version 2
+    mi3,    /// GDB/MI version 3
+    mi4,    /// GDB/MI version 4
+}
+/// Debugger type, defaults to alicedbg.
+enum DebuggerType
+{
+    alicedbg,   /// Alicedbg
+}
+/// Transport type, defaults to stdio,
+enum TransportType
+{
+    stdio,  /// Standard streams
+    tcp,    /// TCP, for multisessions
+    pipe,   /// UNIX socket or Windows NamedPipe, for multisessons
+}
 
 struct DebuggerSettings
 {
@@ -66,24 +58,45 @@ struct AdapterSettings
 
 struct ServerSettings
 {
-    DebuggerSettings debugger;
-    AdapterSettings adapter;
-    
-    ushort listenPort;
-    string listenHost = "localhost";
-    
-    bool logStderr;
-    string logFile;
-    LogLevel logLevel = DEFAULT_LOGLEVEL;
+    DebuggerType debugger;
+    AdapterType  adapter;
+    TransportType transport;
+
+    bool multi; /// Multisession support
+
+    ushort port; // GraalVM uses 4711, but only does TCP
+    string host;
 }
 
 // transport handler
 void startServer(ServerSettings settings)
 {
+    // Only DAP supports multisession
+    // Or if we init adapter with AdapterSettings... Make the adapter throw?
+    if (settings.multi && settings.adapter != AdapterType.dap)
+        throw new Exception("Only DAP supports multisession");
+    
+    // Create transport
+    ITransport transport = void;
+    final switch (settings.transport) {
+    case TransportType.stdio:
+        transport = new StdioTransport();
+        break;
+    case TransportType.tcp:
+        transport = new SocketTransport(settings.host, settings.port);
+        break;
+    case TransportType.pipe:
+        version (Windows)
+            throw new Exception("TODO: NamedPipeTransport");
+        else
+            transport = new SocketTransport(settings.host);
+        break;
+    }
+    
     // Create adapter
-    logDebugging("adapter=%s", settings.adapter.type);
+    logDebugging("adapter=%s", settings.adapter);
     IAdapter adapter = void;
-    final switch (settings.adapter.type) with (AdapterType) {
+    final switch (settings.adapter) with (AdapterType) {
     case dap:
         adapter = new DAPAdapter();
         break;
@@ -101,10 +114,6 @@ void startServer(ServerSettings settings)
         break;
     }
     
-    // Create transport for adapter
-    // Right now, only single-session is supported, via stdio
-    ITransport transport = new StdioTransport();
-    
     // Create debugger instance for adapter
     IDebugger debugger = new AliceDebugger();
     
@@ -112,12 +121,14 @@ void startServer(ServerSettings settings)
     adapter.init(transport);
 
     // Server-owned poll loop
-    while (true)
+    Lmain: while (true)
     {
         if (transport.hasData())
         {
-            if (adapter.handleRequest(debugger, transport) == ADAPTER_QUIT)
-                break;
+            switch (adapter.handleRequest(debugger, transport)) {
+            case ADAPTER_QUIT: break Lmain;
+            default:
+            }
         }
 
         foreach (event; debugger.pollEvents())

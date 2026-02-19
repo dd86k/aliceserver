@@ -13,9 +13,34 @@ import core.time : Duration;
 // NOTE: Sockets are not synchronized and thus need the mutex
 class SocketTransport : ITransport
 {
-    this(Socket socket)
+    // NOTE: socket type implicit from ctor isn't best but this is all internal anyway
+    
+    // Create a new Socket transport: TCP listener
+    this(string interface_, ushort port)
     {
-        sock = socket;
+        if (interface_ is null)
+            interface_ = "localhost";
+        if (port == 0)
+            throw new Exception("I refuse to listen to port 0");
+        Socket sock = new Socket(AddressFamily.INET, SocketType.STREAM, ProtocolType.TCP);
+        sock.bind(new InternetAddress(interface_, port));
+        this(sock);
+    }
+    
+    // Create a new Socket transport: UNIX Socket
+    this(string path)
+    {
+        Socket sock = new Socket(AddressFamily.UNIX, SocketType.STREAM);
+        sock.bind(new UnixAddress(path));
+        this(sock);
+    }
+    
+    this(Socket sock)
+    {
+        socket = sock;
+        // defaults to FD_SETSIZE=64 on Windows, a little too much
+        set = new SocketSet(4);
+        set.add(socket);
         mutex = new shared Mutex();
     }
     
@@ -33,7 +58,7 @@ class SocketTransport : ITransport
             buffer.length = size;
         }
         
-        ptrdiff_t sz = sock.receive(buffer[0..size]);
+        ptrdiff_t sz = socket.receive(buffer[0..size]);
         switch (sz) {
         case 0:
             return null;
@@ -50,15 +75,13 @@ class SocketTransport : ITransport
         mutex.lock_nothrow();
         scope(exit) mutex.unlock_nothrow();
 
-        sock.send(data); // throw allowed
+        socket.send(data); // throw allowed
     }
 
     bool hasData()
     {
-        scope SocketSet readSet = new SocketSet();
-        readSet.add(sock);
         // Select with zero timeout for non-blocking check
-        return Socket.select(readSet, null, null, Duration.zero) > 0;
+        return Socket.select(set, null, null, Duration.zero) > 0;
     }
 
 private:
@@ -70,5 +93,6 @@ private:
     ubyte[] buffer;     // Buffer allocated for reading
     size_t bufpointer;  // Buffer pointer
     
-    Socket sock;
+    Socket socket;
+    SocketSet set;
 }
