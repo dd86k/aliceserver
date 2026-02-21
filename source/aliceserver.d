@@ -157,22 +157,36 @@ void listenTcp(ServerSettings settings)
     }
 }
 
+// If string is null or empty (length zero)
+bool isEmpty(string s)
+{
+    return s is null || s.length == 0;
+}
+
 /// Listen on a Unix socket, accepting connections in a loop.
 version (Posix)
 void listenUnix(ServerSettings settings)
 {
     import std.file : exists, remove;
+    import std.process : environment;
+    import std.path : buildPath;
 
-    if (settings.host is null)
-        throw new Exception("Unix socket path is required");
+    if (settings.host.isEmpty())
+        throw new Exception("Unix socket path is required and cannot be empty");
 
     if (exists(settings.host))
         remove(settings.host);
 
     Socket listener = new Socket(AddressFamily.UNIX, SocketType.STREAM);
     scope(exit) listener.close();
+    
+    // If path separator prefix detected, assume as full path
+    // Otherwise, it is just a name
+    string sockpath = settings.host[0] == '/' ?
+        settings.host :
+        buildPath(environment.get("XDG_RUNTIME_DIR", "/tmp"), settings.host);
 
-    listener.bind(new UnixAddress(settings.host));
+    listener.bind(new UnixAddress(sockpath));
     listener.listen(1);
     logInfo("Listening on %s", settings.host);
 
@@ -181,7 +195,7 @@ void listenUnix(ServerSettings settings)
         Socket conn = listener.accept();
         logInfo("Accepted connection");
         runSession(settings, new SocketTransport(conn));
-        logInfo("Session ended, waiting for next connection");
+        logInfo("Session ended");
     }
 }
 
@@ -201,17 +215,22 @@ void listenPipe(ServerSettings settings)
 
     enum DWORD PIPE_REJECT_REMOTE_CLIENTS = 0x00000008;
 
-    if (settings.host is null)
-        throw new Exception("Pipe name is required (e.g. --pipe=aliceserver)");
+    if (settings.host.isEmpty())
+        throw new Exception("Pipe name is required and cannot be empty");
 
-    string pipeName = settings.host.startsWith(`\\`) ? settings.host : `\\.\pipe\` ~ settings.host;
+    // If UNC prefix detected, assume as full path
+    // Otherwise, it is just a name
+    string pipeName = settings.host.startsWith(`\\`) ?
+        settings.host :
+        `\\.\pipe\` ~ settings.host;
+    string pipez = pipeName.toStringz();
 
     logInfo("Listening on %s", pipeName);
 
     while (true)
     {
         // Create a new pipe instance for each connection
-        HANDLE pipe = CreateNamedPipeA(pipeName.toStringz(),
+        HANDLE pipe = CreateNamedPipeA(pipez,
             PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             1,
@@ -230,7 +249,7 @@ void listenPipe(ServerSettings settings)
 
         logInfo("Accepted connection");
         runSession(settings, new NamedPipeTransport(pipe));
-        logInfo("Session ended, waiting for next connection");
+        logInfo("Session ended");
 
         DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
