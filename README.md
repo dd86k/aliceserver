@@ -44,11 +44,12 @@ To select a transport:
 | `aliceserver -a dap` | DAP via stdio |
 | `aliceserver -a mi --port=9090` | GDB/MI over TCP |
 | `aliceserver --pipe=/run/aliceserver` | DAP over UNIX socket (POSIX) |
-| `aliceserver -a mi --pipe=aliceserver` | GDB/MI over NamedPipe name (Windows) |
 | `aliceserver --pipe=\\.\pipe\example` | DAP over NamedPipe path (Windows) |
+| `aliceserver -a mi --pipe=aliceserver` | GDB/MI over NamedPipe/socket name |
 
-With multi session, a new connection means a new debugging session. Clients are still
-free to invoke additional single sessions (stdio).
+With TCP and pipe options, deemed multi session, a new connection means a new
+debugging session. Clients are still free to invoke additional single sessions (stdio)
+to also simulate multiple sessions.
 
 Implementation details, such as which commands are supported, are in [source/README.md](source/README.md).
 

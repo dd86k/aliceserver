@@ -1,24 +1,20 @@
 # Implementation Details
 
 ```text
-┌───────────────────────────────────────────┐
-│ Aliceserver                               │
+╭───────────────────────────────────────────╮
+│Aliceserver                                │
 │ ┌───────────────────────────────────────┐ │
 │ │                Server                 │ │
-│ └─────▲──────────────▲────────────▲─────┘ │
-│       │              │            │       │
-│       │         ┌────▼─────┐ ┌────▼─────┐ │
-│       │         │ Adapter  │ │ Adapter  │ │
-│ ┌─────▼─────┐   ├──────────┤ ├──────────┤ │
-│ │ Transport │   │ Debugger │ │ Debugger │ │
-└─┴─────▲─────┴───┴────▲─────┴─┴────▲─────┴─┘
+│ ├───────────┬───┬──────────┬─┬──────────┤ │
+│ │           │   │ Adapter  │ │ Adapter  │ │
+│ │ Transport │   ├──────────┤ ├──────────┤ │
+│ │           │   │ Debugger │ │ Proxy    │ │
+╰─┴─────▲─────┴───┴────▲─────┴─┴────▲─────┴─╯
         │              │            │        
-        │              │            │        
-  ┌─────▼─────┐   ┌────▼─────┐ ┌────▼─────┐  
-  │           │   │          │ │          │  
-  │  Client   │   │ Process  │ │ Process  │  
-  │           │   │          │ │          │  
-  └───────────┘   └──────────┘ └──────────┘  
+  ╔═════▼═════╗   ╔════▼═════╗ ╔════▼═════╗  
+  ║ Debugger  ║   ║  Remote  ║ ║  Remote  ║  
+  ║  Client   ║   ║ Process  ║ ║  Server  ║  
+  ╚═══════════╝   ╚══════════╝ ╚══════════╝  
 ```
 
 Aliceserver is implemented using an Object-Oriented Programming model.
@@ -38,6 +34,40 @@ Available transports:
 - `StdioTransport`: Implemented using standard streams.
 - `SocketTransport`: Implemented using Socket (for TCP and UNIX sockets).
 - `NamedPipeTransport`: Implemented using Windows NamedPipes.
+
+### StdioTransport
+
+File: `source/transports/stdio.d`
+
+StdioTransport uses the standard Phobos stream handles.
+
+Nothing special. Uses poll.2 and PeekNamedPipe to perform peeking.
+
+### SocketTransport
+
+File: `source/transports/socket.d`
+
+SocketTransport uses Phobos Socket (`std.socket`) for TCP and UNIX socket transports.
+
+`Socket.select` is used to know if the socket has data.
+
+Path resolution is done by the server. When `--pipe=` argument starts with `/`,
+it is assumed a full path. Otherwise, `XDG_RUNTIME_DIR` is checked and used as
+prefix if it exists. If not, `/tmp/` is used as prefix.
+
+### NamedPipeTransport
+
+File: `source/transports/pipe.d`
+
+NamedPipeTransport uses the Win32 API.
+
+Duplex Named Pipes are created with `PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS`
+(byte-oriented, blocking, and refusing remote connections).
+
+Uses `PeekNamedPipe` for peeking data.
+
+Path resolution is done by the server. When `--pipe=` argument starts with `\\`,
+it is assumed a full path. Otherwise, `\\.\pipe\` is prefixed.
 
 ## Adapters
 
@@ -70,6 +100,8 @@ Right now, only `AlicedbgDebugger` is available as a debugger.
 # Adapter Details
 
 ## DAP
+
+File: `source/adapters/dap.d`
 
 [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP)
 is a protocol using JSON-RPC that was introduced in
@@ -191,6 +223,8 @@ Command support:
 | `thread` | ❌ | |
   
 ## MI
+
+File: `source/adapters/mi.d`
 
 [Machine Interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html)
 is a line-oriented protocol introduced in GDB 5.1.
