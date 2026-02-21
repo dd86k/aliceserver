@@ -51,6 +51,7 @@ void main(string[] args)
             writeln("mi4 ....... GDB/MI version 4");
             exit(0);
         },
+        config.required,
         "a|adapter",`Set adapter to use`, (string _, string value) {
             switch (value) {
             case "dap": osettings.adapter = AdapterType.dap; break;
