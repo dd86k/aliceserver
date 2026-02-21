@@ -1,10 +1,14 @@
 # About Aliceserver
 
-Aliceserver is a debugger server implementing the DAP and GDB/MI protocols, using
-[Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
+Aliceserver is a debugger server implementing the
+[DAP](https://microsoft.github.io/debug-adapter-protocol/) and
+[GDB/MI](https://sourceware.org/gdb/current/onlinedocs/gdb.html/GDB_002fMI.html#GDB_002fMI)
+protocols, using [Alicedbg](https://github.com/dd86k/alicedbg) as the debugger back-end.
 
 It combines all the transport and adapter options into one runtime, allowing
-clients to run any adapter protocol under any transport mediums.
+clients to run any adapter protocol under any transport media.
+
+Supports (and tested on) Windows and Linux.
 
 > [!WARNING]
 > This is WORK IN PROGRESS!
@@ -18,35 +22,35 @@ Why? Tool related:
 - gdb-dap is written in Python and thus requires it.
 - Mago, and mago-mi, are only available for Windows on x86/AMD64 platforms.
 
-Uses:
-- Integrating your favorite text or code editor that implements a debugger UI.
-- Automated debugging integration testing.
-- Reusable high-level integration of Alicedbg.
-
 # Usage
 
 Typically, a debugger client (e.g., VSCode) will start the server on its own.
+
+The adapter option (using `-a ADAPTER` or `--adapter=ADAPTER`) is required.
+
+Adapters:
+- `dap` for Debug Adapter Protocol.
+- `mi` for GDB's Machine Interface.
 
 To select a transport:
 - Default is `stdio`, no extra arguments needed.
 - Use `--port=PORT` to listen to this TCP port, defaults to the `localhost` interface.
 - Use `--pipe=PATH` with a path (`\\.\pipe\example` or `/var/run/example`) or name (`example`).
 
-To select an adapter:
-- `--adapter=dap` selects DAP, which is the default. No extra argument needed.
-- `--adapter=mi` selects the latest MI version.
+## Examples
 
-Examples:
-- `aliceserver`: Without options, aliceserver starts with DAP via stdio.
-- `aliceserver -a mi --port=9090`: Start multi-session on this TCP port with GDB/MI.
-- `aliceserver --pipe=/run/aliceserver`: (POSIX platforms) Start multi-session on this UNIX socket.
-- `aliceserver --pipe=aliceserver`: (Windows only) Start multi-session on `\\.\pipe\aliceserver` Named Pipe.
-- `aliceserver --pipe=\\.\pipe\example`: (Windows only) Start multi-session on this Named Pipe.
+| Command | Description |
+|---|---|
+| `aliceserver -a dap` | DAP via stdio |
+| `aliceserver -a mi --port=9090` | GDB/MI over TCP |
+| `aliceserver --pipe=/run/aliceserver` | DAP over UNIX socket (POSIX) |
+| `aliceserver -a mi --pipe=aliceserver` | GDB/MI over NamedPipe name (Windows) |
+| `aliceserver --pipe=\\.\pipe\example` | DAP over NamedPipe path (Windows) |
 
 With multi session, a new connection means a new debugging session. Clients are still
 free to invoke additional single sessions (stdio).
 
-Implementation details, such as which commands are supported, are in `source/README.md`.
+Implementation details, such as which commands are supported, are in [source/README.md](source/README.md).
 
 # Building
 
