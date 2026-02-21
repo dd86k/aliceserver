@@ -223,7 +223,7 @@ void listenPipe(ServerSettings settings)
     string pipeName = settings.host.startsWith(`\\`) ?
         settings.host :
         `\\.\pipe\` ~ settings.host;
-    string pipez = pipeName.toStringz();
+    const(char) *pipez = pipeName.toStringz();
 
     logInfo("Listening on %s", pipeName);
 
