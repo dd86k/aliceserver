@@ -475,6 +475,10 @@ final class MIAdapter : IAdapter
         //       at least removes some hurdles.
         commands["info-gdb-mi-command"] = (string[] args)
         {
+            // -info-gdb-mi-command unsupported-command
+            // ^done,command={exists="false"}
+            // -info-gdb-mi-command symbol-list-lines
+            // ^done,command={exists="true"}
             if (args.length < 1)
             {
                 replyError("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
@@ -490,46 +494,6 @@ final class MIAdapter : IAdapter
         // -list-features
         // List debugger features
         // gdb 13.1 example: ^done,features=["example","python"]
-        // Features (noted 2024-11-13, see §27.23 GDB/MI Support Commands):
-        // frozen-varobjs
-        //   Indicates support for the -var-set-frozen command, as well as
-        //   possible presence of the frozen field in the output of -varobj-create.
-        // pending-breakpoints
-        //   Indicates support for the -f option to the -break-insert command.
-        // python
-        //   Indicates Python scripting support, Python-based pretty-printing
-        //   commands, and possible presence of the ‘display_hint’ field in the
-        //   output of -var-list-children.
-        // thread-info
-        //   Indicates support for the -thread-info command. 
-        // data-read-memory-bytes
-        //   Indicates support for the -data-read-memory-bytes and the
-        //   -data-write-memory-bytes commands.
-        // breakpoint-notifications
-        //   Indicates that changes to breakpoints and breakpoints created
-        //   via the CLI will be announced via async records.
-        // ada-task-info
-        //   Indicates support for the -ada-task-info command. 
-        // language-option
-        //   Indicates that all GDB/MI commands accept the --language option.
-        // info-gdb-mi-command
-        //   Indicates support for the -info-gdb-mi-command command.
-        // undefined-command-error-code
-        //   Indicates support for the "undefined-command" error code in error
-        //   result records, produced when trying to execute an undefined GDB/MI
-        //   command (see GDB/MI Result Records). 
-        // exec-run-start-option
-        //   Indicates that the -exec-run command supports the --start option
-        //   (see GDB/MI Program Execution).
-        // data-disassemble-a-option
-        //   Indicates that the -data-disassemble command supports the -a option
-        //   (see GDB/MI Data Manipulation). 
-        // simple-values-ref-types
-        //   Indicates that the --simple-values argument to the -stack-list-arguments,
-        //   -stack-list-locals, -stack-list-variables, and -var-list-children commands
-        //   takes reference types into account: that is, a value is considered simple
-        //   if it is neither an array, structure, or union, nor a reference to an
-        //   array, structure, or union. 
         commands["list-features"] = (string[] args)
         {
             MIValue mi;
@@ -715,12 +679,59 @@ private:
     
     OutBuffer buffer;
     
-    // Could be turned into string[] which could bring parity to displaying
-    // capabilities just like with dap.
-    static immutable MIValue[] features = [
+    // Features (noted 2024-11-13, see §27.23 GDB/MI Support Commands):
+    // frozen-varobjs
+    //   Indicates support for the -var-set-frozen command, as well as
+    //   possible presence of the frozen field in the output of -varobj-create.
+    // pending-breakpoints
+    //   Indicates support for the -f option to the -break-insert command.
+    // python
+    //   Indicates Python scripting support, Python-based pretty-printing
+    //   commands, and possible presence of the ‘display_hint’ field in the
+    //   output of -var-list-children.
+    // thread-info
+    //   Indicates support for the -thread-info command. 
+    // data-read-memory-bytes
+    //   Indicates support for the -data-read-memory-bytes and the
+    //   -data-write-memory-bytes commands.
+    // breakpoint-notifications
+    //   Indicates that changes to breakpoints and breakpoints created
+    //   via the CLI will be announced via async records.
+    // ada-task-info
+    //   Indicates support for the -ada-task-info command. 
+    // language-option
+    //   Indicates that all GDB/MI commands accept the --language option.
+    // info-gdb-mi-command
+    //   Indicates support for the -info-gdb-mi-command command.
+    // undefined-command-error-code
+    //   Indicates support for the "undefined-command" error code in error
+    //   result records, produced when trying to execute an undefined GDB/MI
+    //   command (see GDB/MI Result Records). 
+    // exec-run-start-option
+    //   Indicates that the -exec-run command supports the --start option
+    //   (see GDB/MI Program Execution).
+    // data-disassemble-a-option
+    //   Indicates that the -data-disassemble command supports the -a option
+    //   (see GDB/MI Data Manipulation). 
+    // simple-values-ref-types
+    //   Indicates that the --simple-values argument to the -stack-list-arguments,
+    //   -stack-list-locals, -stack-list-variables, and -var-list-children commands
+    //   takes reference types into account: that is, a value is considered simple
+    //   if it is neither an array, structure, or union, nor a reference to an
+    //   array, structure, or union. 
+    static immutable MIValue[] features = [ // No need for string[] yet
         MIValue("thread-info"),
         MIValue("info-gdb-mi-command"),
     ];
+    
+    // -list-target-features
+    // async
+    //   Indicates that the target is capable of asynchronous command execution, which
+    //   means that GDB will accept further commands while the target is running.
+    // reverse
+    //   Indicates that the target is capable of reverse execution.
+    //   See Reverse Execution, for more information.
+    //static immutable MIValue[] target_features = [];
     
     void rawsend(string msg)
     {
@@ -1423,5 +1434,106 @@ unittest
 
         string data = mt.sentData();
         assert(canFind(data, "^done"));
+    }
+}
+
+// Additional handler-level tests for MIAdapter
+unittest
+{
+    import std.algorithm : canFind;
+
+    // Test: exec-run without executable returns ^error
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-exec-run`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^error"));
+    }
+
+    // Test: target-attach without pid returns ^error
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-target-attach`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^error"));
+    }
+
+    // Test: info-gdb-mi-command for existing command
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-info-gdb-mi-command exec-run`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+        assert(canFind(data, `exists="true"`));
+    }
+
+    // Test: info-gdb-mi-command for non-existing command
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-info-gdb-mi-command no-such-cmd`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+        assert(canFind(data, `exists="false"`));
+    }
+
+    // Test: show version replies with version string
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-show version`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "Aliceserver"));
+        assert(canFind(data, "^done"));
+    }
+
+    // Test: environment-directory sets source path
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-environment-directory /some/path`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^done"));
+        assert(canFind(data, "/some/path"));
+    }
+
+    // Test: file-exec-and-symbols with extra args returns ^error
+    {
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+
+        int result = feedMIRequest(adapter, mt, md, `-file-exec-and-symbols /bin/cat /bin/ls`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        assert(canFind(data, "^error"));
     }
 }

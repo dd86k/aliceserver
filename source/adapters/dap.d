@@ -22,8 +22,6 @@ import ddlogger;
 import adapter;
 import debugger;
 
-version(unittest) import testing;
-
 // NOTE: Single-session DAP flow
 // * client spawns server and communiates via standard streams (stdio)
 // * client and server start their sequence number (seq) at 1
@@ -111,7 +109,6 @@ string[string] parseDAPHeaders(string rawHeaders)
     }
     return headers;
 }
-
 unittest
 {
     // Normal headers with Content-Length
@@ -228,7 +225,7 @@ class DAPAdapter : IAdapter
             if (optional(jarguments, "pathFormat", pathFormat))
             {
                 switch (pathFormat) {
-                case "path": //TODO: Setup functions/enums
+                case "path": // TODO: Setup functions/enums
                     client.pathFormat = PathFormat.path;
                     break;
                 case "uri":
@@ -326,7 +323,7 @@ class DAPAdapter : IAdapter
             }
             // "the debug adapter must terminate the debuggee if it was started
             // with the launch request. If an attach request was used to connect
-            // to the debuggee, then the debug adapter must not terminate the debuggee.
+            // to the debuggee, then the debug adapter must not terminate the debuggee."
             /+if (const(JSONValue) *jdisconnect = "arguments" in j)
             {
                 // "Indicates whether the debuggee should be terminated when the
@@ -358,6 +355,7 @@ class DAPAdapter : IAdapter
     void init(ITransport t)
     {
         // Logging purposes
+        // TODO: Move to a new function to return array, let server code print those *once*
         string servercap;
         foreach (ref Capability capability; server.capabilities)
             if (capability.supported)
@@ -639,10 +637,12 @@ private:
     }
 }
 
-version(unittest)
+unittest
 {
+    import testing;
+    
     /// Feed a DAP JSON request through mock transport and call handleRequest.
-    private int feedDAPRequest(DAPAdapter adapter, testing.MockTransport mt, testing.MockDebugger md, string jsonBody)
+    int feedDAPRequest(DAPAdapter adapter, MockTransport mt, testing.MockDebugger md, string jsonBody)
     {
         import std.conv : to;
 
@@ -652,11 +652,6 @@ version(unittest)
         mt.feedBytes(cast(ubyte[])jsonBody);
         return adapter.handleRequest(md, mt);
     }
-}
-
-unittest
-{
-    import testing;
 
     // Test: initialize request returns success with capabilities
     {
