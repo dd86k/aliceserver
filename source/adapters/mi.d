@@ -11,19 +11,18 @@
 /// License: BSD-3-Clause-Clear
 module adapters.mi;
 
+import adapter;
 import aliceserver : AdapterType, PROJECT_VERSION;
-import std.array : replace;
-import std.ascii;
-import std.conv : to;
+import ddlogger;
+import debugger;
+import std.array : Appender, appender, replace;
+import std.ascii : isDigit;
+import std.conv : to, text;
 import std.format : format;
-import std.string : indexOf;
 import std.outbuffer : OutBuffer;
 import std.string : strip, stripRight;
-import core.sync.mutex;
+import std.traits : isArray;
 import util.shell : shellArgs;
-import ddlogger;
-import adapter;
-import debugger;
 version(unittest) import testing;
 
 // NOTE: GDB/MI versions and commmands
@@ -156,9 +155,8 @@ final class MIAdapter : IAdapter
         //   --all: Start all target subprocesses
         //   --thread-group: Start only thread group (of type process) for target process
         //   --start: Stop at target's main function.
-        commands["exec-run"] =
-        commands["run"] =
-        (string[] args) {
+        commands["exec-run"] = commands["run"] = (string[] args)
+        {
             if (exec_path is null)
             {
                 replyError("No executable specified. Use 'file-exec-and-symbols' first.");
@@ -182,34 +180,31 @@ final class MIAdapter : IAdapter
             return ADAPTER_CONTINUE;
         };
         // Resume process execution from a stopped state.
-        commands["exec-continue"] =
-        commands["continue"] =
-        (string[] args) {
+        commands["exec-continue"] = commands["continue"] = (string[] args)
+        {
             debugger.continueThread(current_tid);
             replyRunning();
             return ADAPTER_CONTINUE;
         };
         // Terminate process.
-        commands["exec-abort"] =
-        (string[] args) {
+        commands["exec-abort"] = (string[] args)
+        {
             debugger.terminate();
             replyDone();
             return ADAPTER_QUIT;
         };
         // -exec-interrupt [--all|--thread-group N]
         // Interrupt a running process.
-        commands["exec-interrupt"] =
-        commands["pause"] =
-        (string[] args) {
+        commands["exec-interrupt"] = commands["pause"] = (string[] args)
+        {
             debugger.pause();
             replyDone();
             return ADAPTER_CONTINUE;
         };
         // attach PID
         // Attach debugger to process by its ID.
-        commands["target-attach"] =
-        commands["attach"] =
-        (string[] args) {
+        commands["target-attach"] = commands["attach"] = (string[] args)
+        {
             if (args.length < 1)
             {
                 replyError("Missing process-id argument.");
@@ -232,26 +227,24 @@ final class MIAdapter : IAdapter
         };
         // -gdb-detach [ pid | gid ]
         // Detach debugger from process, keeping its execution alive.
-        commands["target-detach"] =
-        commands["gdb-detach"] =
-        commands["detach"] =
-        (string[] args) {
+        commands["target-detach"] = commands["gdb-detach"] = commands["detach"] = (string[] args)
+        {
             debugger.detach();
             replyDone();
             return ADAPTER_CONTINUE;
         };
         // -target-disconnect
         // Disconnect from remote target.
-        commands["target-disconnect"] =
-        (string[] args) {
+        commands["target-disconnect"] = (string[] args)
+        {
             debugger.detach();
             replyDone();
             return ADAPTER_CONTINUE;
         };
         // target TYPE [OPTIONS]
         // Set target parameters.
-        commands["target"] =
-        (string[] args) {
+        commands["target"] = (string[] args)
+        {
             if (args.length < 1)
             {
                 replyError("Need target type");
@@ -276,41 +269,83 @@ final class MIAdapter : IAdapter
             return ADAPTER_CONTINUE;
         };
         // file-exec-and-symbols PATH
-        // (gdb, lldb) Set target path and symbols as the same
-        commands["file-exec-and-symbols"] =
-        (string[] args) {
-            if (args.length < 1)
+        // Set executable path and load symbols
+        commands["file-exec-and-symbols"] = (string[] args)
+        {
+            // -file-exec-and-symbols /bin/cat 
+            // &"warning: could not find '.gnu_debugaltlink' file for /usr/bin/cat\n"
+            // ^done
+            // -file-exec-and-symbols aa
+            // ^error,msg="aa: File not found."
+            // -file-exec-and-symbols /bin/cat /bin/ls
+            // ^error,msg="Unrecognized argument \"/bin/ls\""
+
+            // Does not support arguments, so...
+            if (args.length >= 2)
             {
-                replyError("Need target executable path");
+                replyError(formatCString(`Unrecognized argument "`~args[1]~`"`));
                 return ADAPTER_CONTINUE;
             }
-            
-            exec_path = args[0].dup;
+
+            exec_path = args.length >= 1 ? args[0].dup : null;
             replyDone();
             return ADAPTER_CONTINUE;
         };
         // -exec-arguments ARGS
         // Set target arguments.
-        commands["exec-arguments"] =
-        (string[] args) {
+        commands["exec-arguments"] = (string[] args)
+        {
             // If arguments given, set, otherwise, clear.
             exec_args = args.length > 0 ? args[0..$].dup : null;
             replyDone();
             return ADAPTER_CONTINUE;
         };
-        // TODO: -environment-cd PATH
-        // Set debugger directory.
-        commands["environment-cd"] =
-        (string[] args) {
-            /*
+        // "Add directories pathdir to beginning of search path for source files."
+        // -r: Reset
+        commands["environment-directory"] = (string[] args)
+        {
+            // -environment-directory /kwikemart/marge/ezannoni/flathead-dev/devo/gdb
+            // ^done,source-path="/kwikemart/marge/ezannoni/flathead-dev/devo/gdb:$cdir:$cwd"
+            // -environment-directory
+            // ^done,source-path="$cdir:$cwd"
+            
+            exec_source_paths = args.length >= 1 ? args.dup : null;
+            
+            // TODO: Send warnings on paths not found
+            // TODO: Build full path always
+            
+            import std.array : join;
+            string paths;
+            if (exec_source_paths)
+                paths = exec_source_paths.join(":")~":";
+            paths ~= "$cdir:$cwd";
+            
+            MIValue mi;
+            mi["source-path"] = paths;
+            replyDone(mi);
+            return ADAPTER_CONTINUE;
+        };
+        // Set debugger process directory.
+        commands["environment-cd"] = (string[] args)
+        {
             if (args.length < 1)
             {
-                replyError("Missing directory path.");
+                replyError("-environment-cd: Usage DIRECTORY");
                 return ADAPTER_CONTINUE;
             }
-            */
             
+            import std.file : chdir;
+            chdir(args[0]);
             replyDone();
+            return ADAPTER_CONTINUE;
+        };
+        // Show debugger process directory.
+        commands["environment-pwd"] = (string[] args)
+        {
+            import std.file : getcwd;
+            MIValue mi;
+            mi["cwd"] = getcwd();
+            replyDone(mi);
             return ADAPTER_CONTINUE;
         };
         // -thread-list-ids
@@ -319,8 +354,8 @@ final class MIAdapter : IAdapter
         // -thread-list-ids
         // ^done,thread-ids={thread-id="1",thread-id="2"},current-thread-id="1",number-of-threads="2"
         // NOTE: MIValue uses an AA, so can't do this weird key repetition
-        /*commands["thread-list-ids"] =
-        (string[] args) {
+        /*commands["thread-list-ids"] = (string[] args)
+        {
             // TODO: -thread-list-ids
             MIValue mi;
             foreach (int tid; debugger.threads())
@@ -362,8 +397,8 @@ final class MIAdapter : IAdapter
         // - frame: Frame information
         // - core: The value of this field is an integer number of the processor
         //   core the thread was last seen on. This field is optional.
-        commands["thread-info"] =
-        (string[] args) {
+        commands["thread-info"] = (string[] args)
+        {
             
             MIValue miThread(int tid)
             {
@@ -409,8 +444,8 @@ final class MIAdapter : IAdapter
         // Show information about session.
         // Without an argument, GDB shows everything as stream output and
         // quits without sending a reply nor the prompt.
-        commands["show"] =
-        (string[] args) {
+        commands["show"] = (string[] args)
+        {
             if (args.length < 1)
             {
                 replyDone();
@@ -438,8 +473,8 @@ final class MIAdapter : IAdapter
         // NOTE: While regular commands work in MI, these will "not exist" in the MI sense
         //       In anyway, saying that the commands exist is not GDB/MI compliant, but
         //       at least removes some hurdles.
-        commands["info-gdb-mi-command"] =
-        (string[] args) {
+        commands["info-gdb-mi-command"] = (string[] args)
+        {
             if (args.length < 1)
             {
                 replyError("Usage: -info-gdb-mi-command MI_COMMAND_NAME");
@@ -495,12 +530,8 @@ final class MIAdapter : IAdapter
         //   takes reference types into account: that is, a value is considered simple
         //   if it is neither an array, structure, or union, nor a reference to an
         //   array, structure, or union. 
-        commands["list-features"] =
-        (string[] args) {
-            static immutable MIValue[] features = [
-                MIValue("thread-info"),
-                MIValue("info-gdb-mi-command"),
-            ];
+        commands["list-features"] = (string[] args)
+        {
             MIValue mi;
             mi["features"] = features;
             replyDone(mi);
@@ -515,10 +546,8 @@ final class MIAdapter : IAdapter
         };
         // Close debugger instance
         // Even when attached, GDB terminates the process. How mean!
-        commands["gdb-exit"] =
-        commands["quit"] =
-        commands["q"] =
-        (string[] args) {
+        commands["gdb-exit"] = commands["quit"] = commands["q"] = (string[] args)
+        {
             if (debugger.attached()) debugger.terminate();
             reply(`^exit`);
             return ADAPTER_QUIT;
@@ -548,17 +577,15 @@ final class MIAdapter : IAdapter
         transport = t;
 
         // Initialize output buffers on first call
-        if (outbuf is null)
+        if (buffer is null)
         {
-            outbuf = new OutBuffer();
-            outbuf.reserve(1024);
-            errbuf = new OutBuffer();
-            errbuf.reserve(1024);
-            tracebuf = new OutBuffer();
-            tracebuf.reserve(512);
+            buffer = new OutBuffer();
+            buffer.reserve(1024);
         }
 
         string fullrequest = cast(string)transport.readline();
+        if (fullrequest.length == 0) // ie, ^D
+            return ADAPTER_QUIT;
 
         // Parse request
         request = parseMIRequest(fullrequest);
@@ -570,11 +597,11 @@ final class MIAdapter : IAdapter
         //       Doesn't: "-gdb-exit", "-info-gdb-mi-command", "-i-dont-exist"
         if (request.line && request.line[0] != '-')
         {
-            tracebuf.clear();
-            tracebuf.write("&\"");
-            tracebuf.write( formatCString(request.line) );
-            tracebuf.write("\"\n");
-            transport.send(tracebuf.toBytes());
+            buffer.clear();
+            buffer.write("&\"");
+            buffer.write( formatCString(request.line) );
+            buffer.write("\"\n");
+            transport.send(buffer.toBytes());
         }
 
         // GDB behavior:
@@ -583,17 +610,17 @@ final class MIAdapter : IAdapter
         // - "22":  valid
         // - "22-": invalid (not found)
         // - "22 help": valid
-        if (strip(request.name) == "") // command parser removes "-"
+        if (strip(request.command) == "") // command parser removes "-"
         {
             replyDone();
             return ADAPTER_CONTINUE;
         }
 
         // Command exists, get request out of that
-        int delegate(string[])* fq = request.name in commands;
+        int delegate(string[])* fq = request.command in commands;
         if (fq == null)
         {
-            replyError(text(`Unknown request: "`, request.name, `"`));
+            replyError(text(`Unknown request: "`, request.command, `"`));
             return ADAPTER_CONTINUE;
         }
 
@@ -615,10 +642,10 @@ final class MIAdapter : IAdapter
         transport = t;
 
         // Initialize output buffers if needed (sendEvent may be called before handleRequest)
-        if (outbuf is null)
+        if (buffer is null)
         {
-            outbuf = new OutBuffer();
-            outbuf.reserve(1024);
+            buffer = new OutBuffer();
+            buffer.reserve(1024);
         }
 
         switch (event.type) with (DebuggerEventType) {
@@ -670,23 +697,30 @@ private:
     ITransport transport;
     IDebugger debugger;
     // NOTE: Virtual functions inside a constructor may lead to unexpected results
-    //       in the derived classes - At leat marking the class as final prevents this
+    //       in the derived classes. Marking the class as final prevents this
     /// AA of implemented commands
     int delegate(string[] args)[string] commands;
     /// Current request
     MIRequest request;
     /// 
     int current_tid;
-    /// Current MI version in use
+    /// Current MI version is used
     int miversion;
     
-    string exec_path;
+    // Target information (should be prefixed with "target_" soon)
+    string   exec_path;
     string[] exec_args;
-    string exec_dir;
+    string   exec_dir;
+    string[] exec_source_paths; // excluding $cdir:$cwd
     
-    OutBuffer outbuf;
-    OutBuffer errbuf;
-    OutBuffer tracebuf;
+    OutBuffer buffer;
+    
+    // Could be turned into string[] which could bring parity to displaying
+    // capabilities just like with dap.
+    static immutable MIValue[] features = [
+        MIValue("thread-info"),
+        MIValue("info-gdb-mi-command"),
+    ];
     
     void rawsend(string msg)
     {
@@ -700,17 +734,17 @@ private:
     
     void reply(string msg)
     {
-        outbuf.clear();
+        buffer.clear();
         
         // Attach token id to result record
         if (request.id)
-            outbuf.write(text(request.id));
+            buffer.write(text(request.id));
         
         // launch and attach requests have "^running" instead of "^done"
-        outbuf.write(msg);
-        outbuf.write('\n');
+        buffer.write(msg);
+        buffer.write('\n');
         
-        transport.send(outbuf.toBytes());
+        transport.send(buffer.toBytes());
     }
     
     void replyRunning()
@@ -725,32 +759,32 @@ private:
     
     void replyDone(ref MIValue m)
     {
-        outbuf.clear();
+        buffer.clear();
         
         // Attach token id to result record
         if (request.id)
-            outbuf.write(text(request.id));
+            buffer.write(text(request.id));
         
-        outbuf.write("^done,");
-        outbuf.write(m.toString());
-        outbuf.write('\n');
+        buffer.write("^done,");
+        buffer.write(m.toString());
+        buffer.write('\n');
         
-        transport.send(outbuf.toBytes());
+        transport.send(buffer.toBytes());
     }
     
     void replyError(string message)
     {
         logError(message);
         
-        errbuf.clear();
+        buffer.clear();
         
         // 123^error,msg="Undefined command: \"test\"."\n
-        if (request.id) errbuf.write(text(request.id));
-        errbuf.write("^error,msg=\"");
-        errbuf.write( formatCString(message) );
-        errbuf.write("\"\n");
+        if (request.id) buffer.write(text(request.id));
+        buffer.write("^error,msg=\"");
+        buffer.write( formatCString(message) );
+        buffer.write("\"\n");
         
-        transport.send(errbuf.toBytes());
+        transport.send(buffer.toBytes());
     }
 }
 
@@ -833,19 +867,15 @@ string[2] toMISignalNameDesc(DebuggerStoppedReason ex)
     }
 }
 
-// TODO: Integrate command name into arguments
-//       Command integration can then see (original?) command
-//       Rename MIRequest.name to MIRequest.command
-//         Document sanization or "simple" name (after removing dashes and request ID)
-// TODO: For logging purposes, keep original command (with request ID)
 struct MIRequest
 {
     uint id;        /// Request ID
     
-    string name;    /// Command name
+    // Keeping command separate from args makes things slightly cleaner...
+    string command; /// Command name
     string[] args;  /// Command arguments
     
-    string line;    /// Full command line, without request ID
+    string line;    /// Full command line without request ID
 }
 
 /// Parse the command 
@@ -892,16 +922,17 @@ MIRequest parseMIRequest(string command)
     string[] args = shellArgs(command);
     if (args)
     {
-        mi.name = args[0];
-        mi.args = args[1..$];
+        mi.command = args[0];
+        mi.args    = args[1..$];
     }
     else // Could not split arguments
     {
-        mi.name = command;
-        mi.args = [];
+        mi.command = command;
+        mi.args    = [];
     }
     
     // Newline must be in full line, but not in last argument...
+    // TODO: Make shellArgs strip it
     if (mi.args.length)
         mi.args[$-1] = mi.args[$-1].stripRight();
     
@@ -911,37 +942,37 @@ unittest
 {
     MIRequest mi = parseMIRequest(`example`);
     assert(mi.id   == 0);
-    assert(mi.name == "example");
+    assert(mi.command == "example");
     assert(mi.args == []);
     assert(mi.line == "example");
     
     mi = parseMIRequest(`-file-exec-and-symbols`);
     assert(mi.id   == 0);
-    assert(mi.name == "file-exec-and-symbols");
+    assert(mi.command == "file-exec-and-symbols");
     assert(mi.args == []);
     assert(mi.line == "file-exec-and-symbols");
     
     mi = parseMIRequest(`123example`);
     assert(mi.id   == 123);
-    assert(mi.name == "example");
+    assert(mi.command == "example");
     assert(mi.args == []);
     assert(mi.line == "example");
     
     mi = parseMIRequest(`1-file-exec-and-symbols`);
     assert(mi.id   == 1);
-    assert(mi.name == "file-exec-and-symbols");
+    assert(mi.command == "file-exec-and-symbols");
     assert(mi.args == []);
     assert(mi.line == "file-exec-and-symbols");
     
     mi = parseMIRequest(`2-command argument`);
     assert(mi.id   == 2);
-    assert(mi.name == "command");
+    assert(mi.command == "command");
     assert(mi.args == [ "argument" ]);
     assert(mi.line == "command argument");
     
     mi = parseMIRequest(`3-command argument "big argument"`);
     assert(mi.id   == 3);
-    assert(mi.name == "command");
+    assert(mi.command == "command");
     assert(mi.args == [ "argument", "big argument" ]);
     assert(mi.line == `command argument "big argument"`);
     
@@ -952,49 +983,45 @@ unittest
     
     mi = parseMIRequest(``);
     assert(mi.id   == 0);
-    assert(mi.name == "");
+    assert(mi.command == "");
     assert(mi.args == []);
     assert(mi.line == "");
     
     /*
     mi = parseMIRequest(`    uh oh`);
     assert(mi.id   == 0);
-    assert(mi.name == "uh");
+    assert(mi.command == "uh");
     assert(mi.args == [ "oh" ]);
     assert(mi.line == "uh oh");
     
     mi = parseMIRequest(` -oh no`);
     assert(mi.id   == 0);
-    assert(mi.name == "oh");
+    assert(mi.command == "oh");
     assert(mi.args == [ "no" ]);
     assert(mi.line == "oh no");
     
     mi = parseMIRequest(`44- uh oh`);
     assert(mi.id   == 44);
-    assert(mi.name == "");
+    assert(mi.command == "");
     assert(mi.args is null);
     */
     
     mi = parseMIRequest(`-`);
     assert(mi.id   == 0);
-    assert(mi.name == "");
+    assert(mi.command == "");
     assert(mi.args == []);
     assert(mi.line == "");
     
     mi = parseMIRequest(`22`);
     assert(mi.id   == 22);
-    assert(mi.name == "");
+    assert(mi.command == "");
     assert(mi.args is null);
     
     mi = parseMIRequest(`33-`);
     assert(mi.id   == 33);
-    assert(mi.name == "");
+    assert(mi.command == "");
     assert(mi.args is null);
 }
-
-import std.array : Appender, appender; // std.json uses this for toString()
-import std.conv : text;
-import std.traits : isArray;
 
 enum MIType
 {
