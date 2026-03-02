@@ -575,7 +575,8 @@ final class MIAdapter : IAdapter
         //       Seem to be on "shell" commands (and not MI commands)
         //       Does:    "q", "quit", "i-dont-exist", "set" commands
         //       Doesn't: "-gdb-exit", "-info-gdb-mi-command", "-i-dont-exist"
-        if (request.line && request.line[0] != '-')
+        import std.string : startsWith;
+        if (startsWith( request.line, "-" ))
         {
             buffer.clear();
             buffer.write("&\"");
@@ -595,6 +596,8 @@ final class MIAdapter : IAdapter
             replyDone();
             return ADAPTER_CONTINUE;
         }
+        
+        logTrace("command='%s'", request.line);
 
         // Command exists, get request out of that
         int delegate(string[])* fq = request.command in commands;
@@ -672,6 +675,8 @@ final class MIAdapter : IAdapter
         default:
             logWarn("Unimplemented event type: %s", event.type);
         }
+
+        sendPrompt();
     }
 
 private:
@@ -943,8 +948,8 @@ MIRequest parseMIRequest(string command)
     if (command.length && command[0] == '-')
         command = command[1..$];
     
-    // Full command line excludes request id
-    mi.line = command;
+    // Full command line excluding request id and newline
+    mi.line = stripRight( command );
     
     // Split arguments, if there are any
     string[] args = shellArgs(command);

@@ -71,6 +71,7 @@ void startServer(ServerSettings settings)
 {
     final switch (settings.transport) {
     case TransportType.stdio:
+        logDebugging("Listening via stdio...");
         // Single session: stdio is one-shot
         runSession(settings, new StdioTransport());
         break;
@@ -94,21 +95,11 @@ void runSession(ServerSettings settings, ITransport transport)
     logDebugging("adapter=%s", settings.adapter);
     IAdapter adapter = void;
     final switch (settings.adapter) with (AdapterType) {
-    case dap:
-        adapter = new DAPAdapter();
-        break;
-    case mi:
-        adapter = new MIAdapter(1);
-        break;
-    case mi2:
-        adapter = new MIAdapter(2);
-        break;
-    case mi3:
-        adapter = new MIAdapter(3);
-        break;
-    case mi4:
-        adapter = new MIAdapter(4);
-        break;
+    case dap:   adapter = new DAPAdapter(); break;
+    case mi:    adapter = new MIAdapter(1); break;
+    case mi2:   adapter = new MIAdapter(2); break;
+    case mi3:   adapter = new MIAdapter(3); break;
+    case mi4:   adapter = new MIAdapter(4); break;
     }
 
     IDebugger debugger = new AliceDebugger();
