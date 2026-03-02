@@ -415,7 +415,6 @@ final class MIAdapter : IAdapter
         //   core the thread was last seen on. This field is optional.
         commands["thread-info"] = (string[] args)
         {
-            
             MIValue miThread(int tid)
             {
                 MIValue mithread;
@@ -432,27 +431,19 @@ final class MIAdapter : IAdapter
             
             MIValue[] milist;
             int selected = args.length > 0 ? to!int(args[0]) : 0;
-            try foreach (int tid; debugger.threads())
+            // NOTE: Let debugger throw, it'll be sent as error
+            foreach (int tid; debugger.threads())
             {
-                // Has TID, show only it
-                // If it does not exist, list is simply empty
-                if (selected && tid == selected)
-                {
-                    milist ~= miThread(tid);
-                    break;
-                }
-                
-                // All TIDs
+                if (selected && tid != selected)
+                    continue;
                 milist ~= miThread(tid);
-            }
-            catch (Exception)
-            {
-                
+                if (selected) break;
             }
             
             MIValue mi;
             mi["threads"] = milist;
-            if (milist.length) mi["current-thread-id"] = current_tid;
+            if (milist.length && current_tid)
+                mi["current-thread-id"] = current_tid;
             replyDone(mi);
             return ADAPTER_CONTINUE;
         };
@@ -1591,5 +1582,24 @@ unittest
 
         string data = mt.sentData();
         assert(canFind(data, "^error"));
+    }
+
+    // Test: thread-info with token produces correct output
+    {
+        import std.algorithm : canFind;
+
+        auto adapter = new MIAdapter(4);
+        auto mt = new MockTransport();
+        auto md = new MockDebugger();
+        md.threadsValue = [1];
+
+        int result = feedMIRequest(adapter, mt, md, `5-thread-info`);
+        assert(result == ADAPTER_CONTINUE);
+
+        string data = mt.sentData();
+        // Token must be echoed back
+        assert(canFind(data, "5^done,threads="));
+        // Thread must be serialized as object inside array
+        assert(canFind(data, `threads=[{id="1"`));
     }
 }
