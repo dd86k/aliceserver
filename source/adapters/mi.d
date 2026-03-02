@@ -70,6 +70,15 @@ version(unittest) import testing;
 //       Debian 11     10.1      3
 //       Debian 12     13.1      4
 
+// NOTE: MI replies
+//       ^ - Reply ("^running" or "^done")
+//       * - Event: Execution state changed ("*stopped" or other)
+//       = - Event: Notification
+//       + - Event: Async status
+//       ~ - Terminal output from debugger
+//       @ - Terminal output from target
+//       & - Stream log (ie, some commands from client)
+
 // NOTE: code-debug
 //
 //       Launching GDB
@@ -80,26 +89,7 @@ version(unittest) import testing;
 //
 //       On Linux, if separateConsole is defined, `inferior-tty-set TTY` is executed.
 
-/*enum MIKind : char
-{
-    // Replies
-    // "running" (exec running), "done" (task performed successfully),
-    result = '^',
-    
-    // Events (Async record types)
-    exec = '*', // execution state changed: "stopped" or other message
-    notify = '=', // notification: "stopped" or other message
-    asyncStatus = '+', // async status: "stopped" or other message
-    
-    // Stream record (informative)
-    // "exit" (quit), "error" (task failed), "connected" (?),
-    console = '~', // terminal output
-    targetStream = '@', // 
-    logStream = '&', // echoes commands
-    
-    // Input
-    command = '-',
-}*/
+// TODO: Thread groups
 
 /*
 private
@@ -146,7 +136,6 @@ final class MIAdapter : IAdapter
         //       - gdb-set: For example, "gdb-set target-async on"
         //       - break-insert: insert breakpoint
         //       - break-condition: change condition to breakpoint
-        //       - file-exec-and-symbols: set exec and symbols
         //       - goto: break-insert -t TARGET or exec-jump TARGET
         // Command list: gdb/mi/mi-cmds.c
         
@@ -353,18 +342,45 @@ final class MIAdapter : IAdapter
         // Example:
         // -thread-list-ids
         // ^done,thread-ids={thread-id="1",thread-id="2"},current-thread-id="1",number-of-threads="2"
-        // NOTE: MIValue uses an AA, so can't do this weird key repetition
-        /*commands["thread-list-ids"] = (string[] args)
+        commands["thread-list-ids"] = (string[] args)
         {
-            // TODO: -thread-list-ids
+            int[] tids = debugger.threads();
+            MIValue threadIds;
+            foreach (int tid; tids)
+                threadIds["thread-id"] = tid;
             MIValue mi;
-            foreach (int tid; debugger.threads())
-            {
-                mi["thread-id"] = tid;
-            }
-            
+            mi["thread-ids"] = threadIds;
+            mi["current-thread-id"] = current_tid;
+            mi["number-of-threads"] = cast(int)tids.length;
+            replyDone(mi);
             return ADAPTER_CONTINUE;
-        };*/
+        };
+        // -thread-select TID
+        // Select the thread to operate on.
+        // Example:
+        // -thread-select 2
+        // ^done,new-thread-id="2",frame={...}
+        commands["thread-select"] = (string[] args)
+        {
+            if (args.length == 0)
+            {
+                replyError("Usage: -thread-select TID");
+                return ADAPTER_CONTINUE;
+            }
+            int tid;
+            try tid = args[0].to!int;
+            catch (Exception)
+            {
+                replyError("Invalid thread ID");
+                return ADAPTER_CONTINUE;
+            }
+            current_tid = tid;
+            MIValue mi;
+            mi["new-thread-id"] = tid;
+            mi["frame"] = miFrame(debugger, tid);
+            replyDone(mi);
+            return ADAPTER_CONTINUE;
+        };
         // -thread-info [TID]
         // Get a list of thread and information associated with each thread.
         // Or only a single thread.
@@ -503,8 +519,8 @@ final class MIAdapter : IAdapter
         };
         // "Not implemented yet, but required by clients" list
         commands["gdb-set"] = // -gdb-set
-        commands["inferior-tty-set"] = // -inferior-tty-set
-        (string[] args) {
+        commands["inferior-tty-set"] = (string[] args)
+        {
             replyDone();
             return ADAPTER_CONTINUE;
         };
@@ -627,6 +643,7 @@ final class MIAdapter : IAdapter
         //   func="??",args=[],arch="i386:x86-64"},thread-id="1",stopped-threads="all"
         // - *stopped,reason="exited-signalled",signal-name="SIGINT",signal-meaning="Interrupt"
         case stopped:
+            current_tid = event.stopped.threadId;
             MIValue mi;
             mi["reason"] = toMIStoppedReason(event.stopped.reason);
             string[2] siginfo = toMISignalNameDesc(event.stopped.reason);

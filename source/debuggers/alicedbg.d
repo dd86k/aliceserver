@@ -92,20 +92,17 @@ class AliceDebugger : IDebugger
 
     int[] threads()
     {
-        throw new Exception("todo");
-        /*
         enforceActiveProcess();
-        void *tlist = adbg_thread_list_new(process);
+        void *tlist = adbg_thread_list_new(ez.process);
         if (tlist == null)
             throw new AlicedbgException();
+        scope(exit) adbg_thread_list_close(tlist);
         size_t i;
-        adbg_thread_t *thread = void;
+        adbg_process_thread_t *thread = void;
         int[] threads;
         while ((thread = adbg_thread_list_get(tlist, i++)) != null)
-            threads ~= cast(int)adbg_thread_id(thread);
-        adbg_thread_list_close(tlist);
+            threads ~= cast(int)adbg_process_thread_id(thread);
         return threads;
-        */
     }
 
     void terminate()
@@ -128,16 +125,14 @@ class AliceDebugger : IDebugger
 
     DebuggerFrameInfo frame(int tid)
     {
-        throw new Exception("todo");
-        /*
         enforceActiveProcess();
 
-        adbg_thread_t *thread = adbg_thread_new(tid);
+        adbg_process_thread_t *thread = adbg_process_thread_create_from_id(ez.process, tid);
         if (thread == null)
             throw new AlicedbgException();
-        scope(exit) adbg_thread_close(thread);
+        scope(exit) adbg_process_thread_close(thread);
 
-        void *framelist = adbg_frame_list(process, thread);
+        adbg_frames_t *framelist = adbg_frame_list(thread);
         if (framelist == null)
             throw new AlicedbgException();
         scope(exit) adbg_frame_list_close(framelist);
@@ -150,9 +145,8 @@ class AliceDebugger : IDebugger
         frame.address = frame0.address;
         frame.funcname = null;
         frame.funcargs = null;
-        frame.arch = adbgMachine( adbg_process_machine(process) );
+        frame.arch = adbgMachine( adbg_process_machine(ez.process) );
         return frame;
-        */
     }
 
     /// Push an event onto the queue (called from C callback, thread-safe).
@@ -263,7 +257,7 @@ void adbgEventHandler(adbg_easy_t *ez, adbg_process_t *aprocess, adbg_event_t *a
     case AdbgEvent.exception:
         event.type = DebuggerEventType.stopped;
         event.stopped.reason = adbgStoppedReason(&aevent.exception);
-        // TODO: event.stopped.threadId from aprocess
+        event.stopped.threadId = cast(int)adbg_process_thread_id(&aevent.exception.thread);
         break;
     case AdbgEvent.processCreated:
         event.type = DebuggerEventType.process;
