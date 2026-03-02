@@ -1184,19 +1184,27 @@ struct MIValue
         }
         else static if (isArray!T)
         {
+            import std.range : ElementType;
+            import std.traits : Unqual;
+
             mi.type = MIType.array;
-            static if (is(T : void[]))
+            static if (is(T == void[]))
             {
                 mi.store.array = []; // empty MIValue[]
             }
-            else // Assumes MIValue[]
+            else static if (is(Unqual!(ElementType!T) == MIValue))
             {
-                // new GC allocation to store and copy values
                 MIValue[] values = new MIValue[value.length];
                 foreach (i, v; value)
-                {
                     values[i] = v;
-                }
+                mi.store.array = values;
+            }
+            else
+            {
+                // Convert element types (e.g. string[]) to MIValue[]
+                MIValue[] values = new MIValue[value.length];
+                foreach (i, v; value)
+                    values[i] = MIValue(v);
                 mi.store.array = values;
             }
         }
@@ -1226,16 +1234,30 @@ struct MIValue
             return text( store.integer );
         case array:
             Appender!string str = appender!string;
-            
+
             size_t count;
             foreach (value; store.array)
             {
                 if (count++)
                     str.put(`,`);
-                
-                str.put(`"`);
+
+                char schar = void, echar = void;
+                switch (value.type) with (MIType) {
+                case object_:
+                    schar = '{';
+                    echar = '}';
+                    break;
+                case array:
+                    schar = '[';
+                    echar = ']';
+                    break;
+                default:
+                    schar = echar = '"';
+                    break;
+                }
+                str.put(schar);
                 str.put(value.toString());
-                str.put(`"`);
+                str.put(echar);
             }
             
             return str.data();
@@ -1327,6 +1349,18 @@ unittest
         miarr["key"] = [];
         assert(miarr["key"].array == []);
         assert(miarr.toString() == `key=[]`);
+    }
+    // Array of objects test (e.g. threads=[{id="1",...},{id="2",...}])
+    {
+        MIValue t1;
+        t1["id"] = 1;
+        t1["state"] = "stopped";
+        MIValue t2;
+        t2["id"] = 2;
+        t2["state"] = "running";
+        MIValue mi;
+        mi["threads"] = [t1, t2];
+        assert(mi.toString() == `threads=[{id="1",state="stopped"},{id="2",state="running"}]`);
     }
     // Sub-object test
     {
