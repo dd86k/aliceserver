@@ -41,15 +41,24 @@ To select a transport:
 
 | Command | Description |
 |---|---|
-| `aliceserver -a dap` | DAP via stdio |
-| `aliceserver -a mi --port=9090` | GDB/MI over TCP |
-| `aliceserver --pipe=/run/aliceserver` | DAP over UNIX socket (POSIX) |
-| `aliceserver --pipe=\\.\pipe\example` | DAP over NamedPipe path (Windows) |
-| `aliceserver -a mi --pipe=aliceserver` | GDB/MI over NamedPipe/socket name |
+| `aliceserver -i dap` | DAP via stdio |
+| `aliceserver -i mi --port=9090` | GDB/MI over TCP |
+| `aliceserver -i mi --pipe=/run/aliceserver` | MI over UNIX socket (POSIX) |
+| `aliceserver -i dap --pipe=\\.\pipe\example` | DAP over NamedPipe path (Windows) |
+| `aliceserver -i dap --pipe=aliceserver` | DAP over NamedPipe/socket name |
 
 With TCP and pipe options, deemed multi session, a new connection means a new
 debugging session. Clients are still free to invoke additional single sessions (stdio)
 to also simulate multiple sessions.
+
+When a pipe name (and not a path) is given, these are the prefixes used:
+- Windows: `\\.\pipe\`
+- POSIX: `XDG_RUNTIME_DIR` variable or `/tmp` if unavailable, both adding `/` when building the path
+
+Pipe path examples with `example`:
+- Windows: `\\.\pipe\example` (with `PIPE_REJECT_REMOTE_CLIENTS`)
+- POSIX: `/run/user/1000/example` when `XDG_RUNTIME_DIR` is set
+- POSIX: `/tmp/example` when `XDG_RUNTIME_DIR` is unset
 
 Implementation details, such as which commands are supported, are in [source/README.md](source/README.md).
 

@@ -51,8 +51,9 @@ void main(string[] args)
             writeln("mi4 ....... GDB/MI version 4");
             exit(0);
         },
+        // Many clients expect -i|--interpreter specifically
         config.required,
-        "a|adapter",`Set adapter to use`, (string _, string value) {
+        "i|interpreter",`Required: Set adapter`, (string _, string value) {
             switch (value) {
             case "dap": osettings.adapter = AdapterType.dap; break;
             case "mi":  osettings.adapter = AdapterType.mi; break;

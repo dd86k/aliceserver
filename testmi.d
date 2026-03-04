@@ -183,7 +183,7 @@ OPTIONS`, ores.options);
                 return error(code, "Compilation ended in error, aborting");
         }
         
-        svropts = [ defaultServer, "-a", "mi" ];
+        svropts = [ defaultServer, "-i", "mi" ];
         if (otrace) svropts ~= [ "--log" ];
         break;
     default: // custom
