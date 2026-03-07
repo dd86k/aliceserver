@@ -24,13 +24,13 @@ Why? Tool related:
 
 # Usage
 
-Typically, a debugger client (e.g., VSCode) will start the server on its own.
+Typically, a debugger client will start the server on its own.
 
-The adapter option (using `-a ADAPTER` or `--adapter=ADAPTER`) is required.
+The adapter option (using `-i ADAPTER`, `-i=ADAPTER`, or `--interpreter=ADAPTER`) is required.
 
 Adapters:
 - `dap` for Debug Adapter Protocol.
-- `mi` for GDB's Machine Interface.
+- `mi` for GDB's Machine Interface. (also accepts `-q`)
 
 To select a transport:
 - Default is `stdio`, no extra arguments needed.
