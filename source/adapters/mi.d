@@ -585,6 +585,7 @@ final class MIAdapter : IAdapter
         if (strip(request.command) == "") // command parser removes "-"
         {
             replyDone();
+            sendPrompt();
             return ADAPTER_CONTINUE;
         }
         
@@ -595,6 +596,7 @@ final class MIAdapter : IAdapter
         if (fq == null)
         {
             replyError(text(`Unknown request: "`, request.command, `"`));
+            sendPrompt();
             return ADAPTER_CONTINUE;
         }
 
