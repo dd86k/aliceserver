@@ -23,3 +23,6 @@ aliceserver-test-*
 
 # Personal stuff
 perso/
+
+# Claude
+.claude/

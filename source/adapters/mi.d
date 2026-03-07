@@ -12,7 +12,7 @@
 module adapters.mi;
 
 import adapter;
-import aliceserver : AdapterType, PROJECT_VERSION;
+import aliceserver : AdapterType, PROJECT_VERSION, PROJECT_COPYRIGHT, PROJECT_LICENSE;
 import ddlogger;
 import debugger;
 import std.array : Appender, appender, replace;
@@ -114,8 +114,9 @@ unittest
 
 final class MIAdapter : IAdapter
 {
-    this(int version_)
+    this(int version_, bool quiet = false)
     {
+        this.quiet = quiet;
         switch (version_) {
         case 1: goto case 4;
         case 2: miversion = 2; break;
@@ -462,8 +463,8 @@ final class MIAdapter : IAdapter
             string showCommand = args[0];
             switch (showCommand) {
             case "version":
-                static immutable string APPVERSION = "~\"Aliceserver "~PROJECT_VERSION~"\\n\"\n";
-                transport.send(cast(ubyte[])APPVERSION);
+                foreach (line; PREAMBLE)
+                    consolePrint(line);
                 replyDone();
                 return ADAPTER_CONTINUE;
             default:
@@ -539,6 +540,11 @@ final class MIAdapter : IAdapter
     void init(ITransport t)
     {
         transport = t;
+        if (!quiet)
+        {
+            foreach (line; PREAMBLE)
+                consolePrint(line);
+        }
         sendPrompt();
     }
 
@@ -685,6 +691,8 @@ private:
     int current_tid;
     /// Current MI version is used
     int miversion;
+    /// Suppress banner on startup (like GDB's -q)
+    bool quiet;
     
     // Target information (should be prefixed with "target_" soon)
     string   exec_path;
@@ -748,16 +756,26 @@ private:
     //   See Reverse Execution, for more information.
     //static immutable MIValue[] target_features = [];
     
+    // Send a raw message to client, mostly discouraged to be used directly
     void rawsend(string msg)
     {
         transport.send(cast(ubyte[])msg);
     }
     
+    // Send prompt to client, when ready
     void sendPrompt()
     {
         rawsend("(gdb)\n");
     }
+
+    // Send a message coming from the debugger server, us
+    void consolePrint(string msg)
+    {
+        rawsend("~\"" ~ msg ~ "\\n\"\n");
+    }
     
+    // Reply to a request using a word (other than "^running" or "^done")
+    // replyRunning and replyDone uses this
     void reply(string msg)
     {
         buffer.clear();
@@ -773,16 +791,19 @@ private:
         transport.send(buffer.toBytes());
     }
     
+    // Reply "^running"
     void replyRunning()
     {
         reply(`^running`);
     }
     
+    // Reply "^done"
     void replyDone()
     {
         reply(`^done`);
     }
     
+    // Reply "^done" with values
     void replyDone(ref MIValue m)
     {
         buffer.clear();
@@ -798,6 +819,7 @@ private:
         transport.send(buffer.toBytes());
     }
     
+    // Reply "^error" with error message
     void replyError(string message)
     {
         logError(message);
@@ -815,6 +837,17 @@ private:
 }
 
 private:
+
+// ~"GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git\n"
+// ~"Copyright (C) 2024 Free Software Foundation, Inc.\n"
+// ~"License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n..."
+/// Preamble lines for startup and "show version".
+static immutable string[] PREAMBLE = [
+    // Some tools depend on reading "GNU gdb"
+    "GNU gdb compatible Aliceserver "~PROJECT_VERSION,
+    PROJECT_COPYRIGHT,
+    PROJECT_LICENSE,
+];
 
 string toMIArch(Architecture arch)
 {

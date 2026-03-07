@@ -63,8 +63,11 @@ struct ServerSettings
     AdapterType  adapter;
     TransportType transport;
 
-    ushort port; // GraalVM uses 4711, but only does TCP
+    ushort port; // GraalVM/VSCode use 4711, but only uses TCP
     string host;
+    
+    /// When using GDB/MI, do not print version (like GDB does)
+    bool quiet;
 }
 
 void startServer(ServerSettings settings)
@@ -96,10 +99,10 @@ void runSession(ServerSettings settings, ITransport transport)
     IAdapter adapter = void;
     final switch (settings.adapter) with (AdapterType) {
     case dap:   adapter = new DAPAdapter(); break;
-    case mi:    adapter = new MIAdapter(1); break;
-    case mi2:   adapter = new MIAdapter(2); break;
-    case mi3:   adapter = new MIAdapter(3); break;
-    case mi4:   adapter = new MIAdapter(4); break;
+    case mi:    adapter = new MIAdapter(1, settings.quiet); break;
+    case mi2:   adapter = new MIAdapter(2, settings.quiet); break;
+    case mi3:   adapter = new MIAdapter(3, settings.quiet); break;
+    case mi4:   adapter = new MIAdapter(4, settings.quiet); break;
     }
 
     IDebugger debugger = new AliceDebugger();

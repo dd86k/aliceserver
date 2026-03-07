@@ -42,7 +42,8 @@ void main(string[] args)
         //
         // Adapter options
         //
-        "list-adapters",  `List available adapters`, {
+        "list-adapters",  `List available adapters`,
+        {
             writeln("Adapters:");
             writeln("dap ....... Debug Adapter Protocol (default)");
             writeln("mi ........ GDB/MI (GDB Machine Interface), latest version");
@@ -53,7 +54,8 @@ void main(string[] args)
         },
         // Many clients expect -i|--interpreter specifically
         config.required,
-        "i|interpreter",`Required: Set adapter`, (string _, string value) {
+        "i|interpreter",`Required: Set adapter`, (string _, string value)
+        {
             switch (value) {
             case "dap": osettings.adapter = AdapterType.dap; break;
             case "mi":  osettings.adapter = AdapterType.mi; break;
@@ -87,12 +89,18 @@ void main(string[] args)
             osettings.transport = TransportType.pipe;
         },
         //
+        // Behavior
+        //
+        "q|quiet",  `Do not print version number on startup`, &osettings.quiet,
+        //
         // Logging
         //
         "log",      `Logger: Enable logging to stderr`, {
             logAddAppender(new ConsoleAppender());
         },
-        "logfile",  `Logger: Enable logging to file path`, (string _, string path) {
+        "logfile",  `Logger: Enable logging to file path`,
+        (string _, string path)
+        {
             logAddAppender(new FileAppender(path));
         },
         "loglevel", `Logger: Set log level (default=info)`, &olevel,
@@ -101,11 +109,13 @@ void main(string[] args)
         //
         // Pages
         //
-        "ver",      `Show only version and quit`, {
+        "ver",      `Show only version and quit`,
+        {
             writeln(PROJECT_VERSION);
             exit(0);
         },
-        "version",  `Show version page and quit`, {
+        "version",  `Show version page and quit`,
+        {
             static immutable string verpage =
             "aliceserver " ~ PROJECT_VERSION ~ "\n"~
             "            Built: " ~ __TIMESTAMP__ ~ "\n"~
