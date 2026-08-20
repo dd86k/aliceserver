@@ -8,12 +8,12 @@ protocols, using [Alicedbg](https://github.com/dd86k/alicedbg) as the debugger b
 It combines all the transport and adapter options into one runtime, allowing
 clients to run any adapter protocol under any transport media.
 
-Supports (and tested on) Windows and Linux.
+It supports (and is tested on) Windows and Linux.
 
 > [!WARNING]
-> This is WORK IN PROGRESS!
+> This is both a Work In Progress (**WIP**) and a Proof Of Concept (**POC**).
 > 
-> Experimental project, don't expect it to replace GDB or LLDB any time soon.
+> So don't expect it to replace GDB or LLDB any time soon.
 
 Why? Tool related:
 - lldb-mi is generally no longer available as a prebuilt binary after LLDB 9.0.1.
@@ -66,9 +66,8 @@ Implementation details, such as which commands are supported, are in [source/REA
 
 You'll need DUB and a recent D compiler: DMD, GDC, or LDC.
 
-Debug build: `dub build`
-
-Release build: `dub build -b release`
+- Debug build: `dub build`
+- Release build: `dub build -b release`
 
 DUB will automatically pull in the dependencies.
 
